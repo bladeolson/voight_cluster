@@ -2,7 +2,7 @@
 """
 Zen KOKORO Node Server
 ======================
-Orchestration node for the Zen cluster.
+Orchestration node for the VOIGHT CLUSTER.
 Provides dashboard, cluster status, and job dispatch.
 
 Node: KOKORO (心 - heart/mind)
@@ -23,7 +23,7 @@ import httpx
 
 app = FastAPI(
     title="Zen KOKORO Node",
-    description="Orchestration node for the Zen cluster (心)",
+    description="Orchestration node for the VOIGHT CLUSTER (心)",
     version="0.1.0",
 )
 
@@ -54,7 +54,7 @@ class NodeStatus(BaseModel):
 
 
 class ClusterStatus(BaseModel):
-    """Status of the entire cluster."""
+    """Status of the entire VOIGHT CLUSTER."""
     timestamp: str
     orchestrator: str
     nodes: list[NodeStatus]
@@ -223,7 +223,7 @@ def status():
         },
         "cluster_nodes": list(CLUSTER_NODES.keys()),
         "version": "0.1.0",
-        "note": "Zen orchestration node (KOKORO)",
+        "note": "Zen orchestration node (KOKORO) - VOIGHT CLUSTER",
     }
 
 
@@ -279,7 +279,7 @@ async def dashboard(request: Request):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="refresh" content="10">
-    <title>Zen Cluster Dashboard</title>
+    <title>VOIGHT CLUSTER Dashboard</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;700&family=JetBrains+Mono:wght@400;600&display=swap');
         
@@ -545,7 +545,7 @@ async def dashboard(request: Request):
     <div class="container">
         <header>
             <div class="title-kanji">心</div>
-            <h1>Zen Cluster</h1>
+            <h1>VOIGHT CLUSTER</h1>
         </header>
         
         <div class="summary">

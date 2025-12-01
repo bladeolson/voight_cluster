@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Zen Cluster Control CLI
+VOIGHT CLUSTER Control CLI
 =======================
-Manage the entire Zen cluster from the Orchestrator (Kokoro).
+Manage the entire VOIGHT CLUSTER from the Orchestrator (Kokoro).
 
 Usage:
   ./zen_ctl.py restart [all|me|te|kokoro]
@@ -60,7 +60,7 @@ def stop_service(node_name):
 
 def check_status():
     """Check status of all nodes."""
-    print("\n=== Zen Cluster Status ===")
+    print("\n=== VOIGHT CLUSTER Status ===")
     for name, node in NODES.items():
         service = node["service"]
         if node["host"] == "localhost":
@@ -75,7 +75,7 @@ def check_status():
         print(f"{icon} {name.upper():<10} : {status}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Zen Cluster Control")
+    parser = argparse.ArgumentParser(description="VOIGHT CLUSTER Control")
     parser.add_argument("action", choices=["restart", "stop", "status"], help="Action to perform")
     parser.add_argument("target", nargs="?", default="all", help="Target node (all, me, te, kokoro)")
     

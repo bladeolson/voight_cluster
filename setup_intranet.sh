@@ -5,7 +5,7 @@
 # Don't exit immediately on error for the update check
 set +e
 
-echo "=== Zen Cluster Intranet Setup ==="
+echo "=== VOIGHT CLUSTER Intranet Setup ==="
 echo "Setting up https://kokoro.local/ ..."
 
 # Fix known broken NVIDIA repo if present (blocks apt update)

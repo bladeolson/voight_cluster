@@ -1,6 +1,6 @@
 # Zen KOKORO Node (心)
 
-**Orchestration node for the Zen cluster.**
+**Orchestration node for the VOIGHT CLUSTER.**
 
 | Property | Value |
 |----------|-------|
@@ -12,7 +12,7 @@
 
 ## Overview
 
-The KOKORO node is the "heart" of the Zen cluster. Its responsibilities include:
+The KOKORO node is the "heart" of the VOIGHT CLUSTER. Its responsibilities include:
 
 - **Dashboard**: Web UI to monitor all nodes in real-time
 - **Cluster Monitor**: Query all nodes for their status
@@ -199,5 +199,5 @@ See `docs/kokoro_node_setup.md` for systemd service configuration.
 
 ## License
 
-Part of the Zen cluster project.
+Part of the VOIGHT CLUSTER project.
 
