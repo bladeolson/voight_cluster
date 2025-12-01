@@ -1,0 +1,19 @@
+#!/usr/bin/expect -f
+set timeout 10
+set host "10.0.0.30"
+set user "bladeolson"
+set password "Laser26!"
+set remote_file "/home/bladeolson/Documents/zen_me_node/zen_me_server.py"
+
+# Escape the content for use in sed/expect
+set new_width "2560"
+set new_height "960"
+
+spawn ssh -o StrictHostKeyChecking=no $user@$host "sed -i 's/cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)/cap.set(cv2.CAP_PROP_FRAME_WIDTH, $new_width)/' $remote_file && sed -i 's/cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)/cap.set(cv2.CAP_PROP_FRAME_HEIGHT, $new_height)/' $remote_file && echo $password | sudo -S systemctl restart zen-me-node"
+expect {
+    "password for" {
+        send "$password\r"
+    }
+}
+expect eof
+

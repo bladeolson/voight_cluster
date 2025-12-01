@@ -1,0 +1,14 @@
+#!/usr/bin/expect -f
+set timeout 10
+set host "10.0.0.30"
+set user "bladeolson"
+set password "Laser26!"
+
+spawn ssh -o StrictHostKeyChecking=no $user@$host "echo $password | sudo -S systemctl start zen-me-node && systemctl status zen-me-node"
+expect {
+    "password for" {
+        send "$password\r"
+    }
+}
+expect eof
+

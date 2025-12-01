@@ -1,0 +1,18 @@
+#!/usr/bin/expect -f
+set timeout 10
+set host "me.local"
+set user "bladeolson"
+set password "Laser26!"
+
+spawn ssh-copy-id $user@$host
+expect {
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+    "password:" {
+        send "$password\r"
+    }
+}
+expect eof
+

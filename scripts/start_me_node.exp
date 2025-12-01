@@ -1,0 +1,14 @@
+#!/usr/bin/expect -f
+set timeout 10
+set host "me.local"
+set user "bladeolson"
+set password "Laser26!"
+
+spawn ssh -t $user@$host "echo $password | sudo -S systemctl start zen-me-node && echo $password | sudo -S systemctl enable zen-me-node"
+expect {
+    "password for" {
+        send "$password\r"
+    }
+}
+expect eof
+
