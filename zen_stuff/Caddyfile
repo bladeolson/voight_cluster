@@ -1,0 +1,14 @@
+{
+    auto_https off
+}
+
+# Caddyfile for VOIGHT CLUSTER (Kokoro)
+
+http://10.0.0.205:80 {
+    reverse_proxy localhost:8025
+}
+
+https://kokoro.local:443 {
+    reverse_proxy localhost:8025
+    tls internal
+}

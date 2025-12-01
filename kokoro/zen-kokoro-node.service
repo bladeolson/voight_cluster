@@ -1,0 +1,15 @@
+[Unit]
+Description=VOIGHT CLUSTER Kokoro Node
+After=network.target
+
+[Service]
+Type=simple
+User=bladeolson
+WorkingDirectory=/home/bladeolson/voight_cluster/kokoro
+Environment="PATH=/home/bladeolson/voight_cluster/.venv/bin"
+ExecStart=/home/bladeolson/voight_cluster/.venv/bin/python3 -m uvicorn zen_kokoro_server:app --host 0.0.0.0 --port 8025
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
