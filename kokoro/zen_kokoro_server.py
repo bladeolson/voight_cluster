@@ -947,24 +947,29 @@ async def dashboard(request: Request):
         
         /* Zen Eyebrows - Wave-based emotion */
         .zen-eyebrows {
-            width: 740px;
-            height: 40px;
-            margin-bottom: -8px;
+            width: 100%;
+            max-width: 700px;
+            height: 50px;
+            margin-bottom: -15px;
             position: relative;
-            z-index: 5;
+            z-index: 10;
         }
         
         .eyebrow {
-            stroke: rgba(99, 102, 241, 0.7);
+            stroke: rgba(99, 102, 241, 0.85);
+            stroke-width: 3;
+            fill: none;
+            filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.5));
             transition: stroke 0.4s ease;
         }
         
         .danwa-view[data-state="speaking"] .eyebrow {
-            stroke: rgba(200, 80, 100, 0.6);
+            stroke: rgba(200, 100, 120, 0.75);
+            filter: drop-shadow(0 0 4px rgba(200, 100, 120, 0.4));
         }
         
         @media (prefers-reduced-motion: reduce) {
-            .zen-eyebrows { opacity: 0.6; }
+            .zen-eyebrows { opacity: 0.7; }
         }
         
         /* Eyes - Living Organs */
@@ -1244,11 +1249,16 @@ async def dashboard(request: Request):
         }
         
         .zen-thought-bubble {
-            min-height: 40px;
+            min-height: 50px;
+            max-width: 600px;
+            margin: 0 auto;
             text-align: center;
-            color: var(--accent);
-            font-size: 1.1rem;
-            font-style: italic;
+            color: rgba(200, 205, 220, 0.95);
+            font-size: 1.05rem;
+            font-family: 'Noto Sans JP', sans-serif;
+            font-weight: 300;
+            letter-spacing: 0.02em;
+            line-height: 1.6;
             max-width: 500px;
             line-height: 1.5;
             padding: 15px 25px;
@@ -1263,6 +1273,35 @@ async def dashboard(request: Request):
         .zen-thought-bubble.active {
             opacity: 1;
         }
+        
+        .zen-emotion-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: rgba(99, 102, 241, 0.7);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .zen-emotion-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: rgba(99, 102, 241, 0.6);
+            transition: all 0.4s ease;
+        }
+        
+        .zen-emotion-indicator[data-emotion="calm"] .zen-emotion-dot { background: rgba(99, 102, 241, 0.5); }
+        .zen-emotion-indicator[data-emotion="curious"] .zen-emotion-dot { background: rgba(120, 200, 180, 0.7); }
+        .zen-emotion-indicator[data-emotion="concern"] .zen-emotion-dot { background: rgba(180, 140, 200, 0.7); }
+        .zen-emotion-indicator[data-emotion="focus"] .zen-emotion-dot { background: rgba(100, 120, 180, 0.7); }
+        .zen-emotion-indicator[data-emotion="joy"] .zen-emotion-dot { background: rgba(200, 180, 120, 0.7); }
+        .zen-emotion-indicator[data-emotion="confused"] .zen-emotion-dot { background: rgba(180, 160, 140, 0.7); }
+        .zen-emotion-indicator[data-emotion="alert"] .zen-emotion-dot { background: rgba(200, 120, 120, 0.7); }
         
         /* Adjust nodes view for toggle */
         .nodes-view {
@@ -1301,23 +1340,24 @@ async def dashboard(request: Request):
             <div class="zen-state-ring"></div>
             
             <!-- Thought Bubble - Above Eyes (Brain) -->
-            <div class="zen-thought-bubble" id="zen-thought"></div>
+            <div class="zen-thought-container">
+                <div class="zen-emotion-indicator" id="zen-emotion-display" data-emotion="calm">
+                    <span class="zen-emotion-dot"></span>
+                    <span class="zen-emotion-label">calm</span>
+                </div>
+                <div class="zen-thought-bubble" id="zen-thought"></div>
+            </div>
             
             <!-- Eyes with Eyebrows -->
             <div class="zen-eyes-container">
                 <!-- Eyebrows - Wave-based emotion indicators -->
-                <svg class="zen-eyebrows" viewBox="0 0 740 60" preserveAspectRatio="xMidYMid meet">
-                    <defs>
-                        <filter id="eyebrow-glow" x="-50%" y="-50%" width="200%" height="200%">
-                            <feGaussianBlur stdDeviation="3" result="blur"/>
-                            <feMerge>
-                                <feMergeNode in="blur"/>
-                                <feMergeNode in="SourceGraphic"/>
-                            </feMerge>
-                        </filter>
-                    </defs>
-                    <path id="eyebrow-left" class="eyebrow" d="" fill="none" stroke-width="2.5" stroke-linecap="round" filter="url(#eyebrow-glow)"/>
-                    <path id="eyebrow-right" class="eyebrow" d="" fill="none" stroke-width="2.5" stroke-linecap="round" filter="url(#eyebrow-glow)"/>
+                <svg class="zen-eyebrows" viewBox="0 0 700 50" preserveAspectRatio="xMidYMid meet">
+                    <path id="eyebrow-left" class="eyebrow" 
+                          d="M 50 35 Q 130 20 210 35" 
+                          stroke-linecap="round"/>
+                    <path id="eyebrow-right" class="eyebrow" 
+                          d="M 490 35 Q 570 20 650 35" 
+                          stroke-linecap="round"/>
                 </svg>
                 
                 <!-- Eyes - Camera Feed -->
@@ -1931,6 +1971,14 @@ async def dashboard(request: Request):
         
         function setZenEmotion(emotion) {
             window.zenEmotion = emotion;
+            
+            // Update emotion display
+            const emotionDisplay = document.getElementById('zen-emotion-display');
+            if (emotionDisplay) {
+                emotionDisplay.setAttribute('data-emotion', emotion);
+                const label = emotionDisplay.querySelector('.zen-emotion-label');
+                if (label) label.textContent = emotion;
+            }
         }
         
         // Interpolate eyebrow parameters toward target
@@ -1997,7 +2045,12 @@ async def dashboard(request: Request):
                 const rightPath = document.getElementById('eyebrow-right');
                 const danwaView = document.getElementById('danwa-view');
                 
-                if (!leftPath || !rightPath || !danwaView || danwaView.style.display === 'none') {
+                if (!leftPath || !rightPath) {
+                    eyebrowsAnimating = false;
+                    return;
+                }
+                
+                if (danwaView && danwaView.style.display === 'none') {
                     eyebrowsAnimating = false;
                     return;
                 }
@@ -2005,52 +2058,66 @@ async def dashboard(request: Request):
                 // Check reduced motion preference
                 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
                 if (reducedMotion) {
-                    leftPath.setAttribute('d', 'M 50 30 Q 130 22 210 30');
-                    rightPath.setAttribute('d', 'M 530 30 Q 610 22 690 30');
+                    leftPath.setAttribute('d', 'M 50 35 Q 130 22 210 35');
+                    rightPath.setAttribute('d', 'M 490 35 Q 570 22 650 35');
                     return;
                 }
                 
                 updateEyebrowParams();
                 const p = window.eyebrowParams;
                 
-                // Generate smooth curved paths
+                // Left eyebrow: 50-210 (outer to inner toward center)
+                // Right eyebrow: 490-650 (inner to outer from center)
+                
+                const baseY = 35;
                 const leftPoints = [];
                 const rightPoints = [];
-                const segments = 20;
+                const segments = 24;
                 
                 for (let i = 0; i <= segments; i++) {
                     const t = i / segments;
                     
-                    // Left eyebrow (inner = right side, outer = left side)
+                    // Left eyebrow
                     const lx = 50 + t * 160;
-                    const innerW = 1 - t;
-                    const outerW = t;
-                    const wave = Math.sin(t * Math.PI + p.phase) * 2;
+                    const wave = Math.sin(t * Math.PI * 2 + p.phase) * 1.5;
                     const arch = Math.sin(t * Math.PI) * p.amplitude;
-                    const bias = p.innerBias * (1-t) + p.outerBias * t;
-                    const asym = (1 - p.symmetry) * 3;
-                    const ly = 30 - p.baselineOffset - arch - bias - wave - asym;
-                    leftPoints.push({x: lx, y: ly});
+                    // inner = right side of left brow (t=1), outer = left side (t=0)
+                    const bias = p.outerBias * (1-t) + p.innerBias * t;
+                    const asym = (1 - p.symmetry) * 4 * (t - 0.5);
+                    const ly = baseY - p.baselineOffset - arch - bias + wave + asym;
+                    leftPoints.push({x: lx, y: Math.max(5, Math.min(45, ly))});
                     
-                    // Right eyebrow (mirrored)
-                    const rx = 530 + t * 160;
-                    const rBias = p.outerBias * (1-t) + p.innerBias * t;
-                    const ry = 30 - p.baselineOffset - arch - rBias - wave + asym;
-                    rightPoints.push({x: rx, y: ry});
+                    // Right eyebrow (mirrored: inner at t=0, outer at t=1)
+                    const rx = 490 + t * 160;
+                    const rBias = p.innerBias * (1-t) + p.outerBias * t;
+                    const rAsym = (1 - p.symmetry) * 4 * (0.5 - t);
+                    const ry = baseY - p.baselineOffset - arch - rBias + wave + rAsym;
+                    rightPoints.push({x: rx, y: Math.max(5, Math.min(45, ry))});
                 }
                 
-                // Build smooth bezier paths
-                function pointsToPath(pts) {
+                // Build smooth quadratic bezier path
+                function pointsToSmoothPath(pts) {
                     if (pts.length < 2) return '';
                     let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-                    for (let i = 1; i < pts.length; i++) {
-                        d += ` L ${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
+                    
+                    // Use quadratic curves for smoothness
+                    for (let i = 1; i < pts.length - 1; i++) {
+                        const cp = pts[i];
+                        const next = pts[i + 1];
+                        const midX = (cp.x + next.x) / 2;
+                        const midY = (cp.y + next.y) / 2;
+                        d += ` Q ${cp.x.toFixed(1)} ${cp.y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)}`;
                     }
+                    
+                    // Final point
+                    const last = pts[pts.length - 1];
+                    d += ` L ${last.x.toFixed(1)} ${last.y.toFixed(1)}`;
+                    
                     return d;
                 }
                 
-                leftPath.setAttribute('d', pointsToPath(leftPoints));
-                rightPath.setAttribute('d', pointsToPath(rightPoints));
+                leftPath.setAttribute('d', pointsToSmoothPath(leftPoints));
+                rightPath.setAttribute('d', pointsToSmoothPath(rightPoints));
                 
                 requestAnimationFrame(animate);
             }
@@ -2343,14 +2410,38 @@ async def dispatch_job(request: DispatchRequest) -> DispatchResult:
 
 if __name__ == "__main__":
     import uvicorn
+    import os
+    import sys
+    
+    # SSL certificate paths
+    ssl_dir = os.path.join(os.path.dirname(__file__), "ssl")
+    ssl_cert = os.path.join(ssl_dir, "cert.pem")
+    ssl_key = os.path.join(ssl_dir, "key.pem")
+    
+    # Check if SSL certs exist
+    use_ssl = os.path.exists(ssl_cert) and os.path.exists(ssl_key)
     
     print("=" * 60)
     print("  VOIGHT CLUSTER Orchestration Node (KOKORO) - 心")
-    print("  Starting server on http://0.0.0.0:8025")
+    if use_ssl:
+        print("  Starting server on https://0.0.0.0:8025 (SSL enabled)")
+        print("  Microphone access available from any device!")
+    else:
+        print("  Starting server on http://0.0.0.0:8025")
+        print("  ⚠️  No SSL - microphone only works on localhost")
     print("=" * 60)
     
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8025,
-    )
+    if use_ssl:
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=8025,
+            ssl_certfile=ssl_cert,
+            ssl_keyfile=ssl_key,
+        )
+    else:
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=8025,
+        )

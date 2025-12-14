@@ -31,6 +31,10 @@ Thumbs.db
 .env
 *.local
 
+# SSL certificates (generate locally)
+ssl/
+*.pem
+
 # Node (if any)
 node_modules/
 
