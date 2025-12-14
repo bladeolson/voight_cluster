@@ -16,6 +16,42 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 import httpx
+import psutil
+
+
+def get_hardware_stats():
+    """Get current hardware statistics."""
+    try:
+        import subprocess
+        # GPU detection
+        gpus = []
+        gpus_detected = 0
+        try:
+            result = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total,memory.used', '--format=csv,noheader,nounits'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    if line:
+                        parts = line.split(', ')
+                        if len(parts) >= 3:
+                            gpus.append({
+                                'name': parts[0],
+                                'memory_total_mb': int(parts[1]),
+                                'memory_used_mb': int(parts[2])
+                            })
+                gpus_detected = len(gpus)
+        except:
+            pass
+        
+        return {
+            "cpu_percent": psutil.cpu_percent(),
+            "ram_total_gb": round(psutil.virtual_memory().total / (1024**3), 1),
+            "ram_used_gb": round(psutil.virtual_memory().used / (1024**3), 1),
+            "gpus_detected": gpus_detected,
+            "gpus": gpus,
+        }
+    except:
+        return {}
 
 # -----------------------------------------------------------------------------
 # App Configuration
@@ -86,7 +122,7 @@ async def check_node_status(name: str, info: dict) -> NodeStatus:
     Check the status of a single node.
     Returns a NodeStatus with online=True/False and status data or error.
     """
-    # Skip self-check for kokoro
+    # Skip self-check for kokoro - but include hardware stats
     if name == "kokoro":
         return NodeStatus(
             name=name,
@@ -94,7 +130,20 @@ async def check_node_status(name: str, info: dict) -> NodeStatus:
             role=info["role"],
             url=info["url"],
             online=True,
-            status={"node": "kokoro", "note": "This is the orchestrator"},
+            status={
+                "node": "kokoro", 
+                "note": "This is the orchestrator",
+                "hardware": get_hardware_stats(),
+                "capabilities": {
+                    "dashboard": True,
+                    "cluster_monitor": True,
+                    "job_dispatch": True,
+                },
+                "voice_ui": {
+                    "enabled": True,
+                    "url": "http://kokoro.local:3000",
+                }
+            },
         )
     
     try:
@@ -221,6 +270,7 @@ def status():
             "cluster_monitor": True,
             "job_dispatch": True,
         },
+        "hardware": get_hardware_stats(),
         "cluster_nodes": list(CLUSTER_NODES.keys()),
         "version": "0.1.0",
         "note": "Zen orchestration node (KOKORO) - VOIGHT CLUSTER",
@@ -278,8 +328,157 @@ async def dashboard(request: Request):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="10">
     <title>VOIGHT CLUSTER Dashboard</title>
+    <script>
+        // Zen Voice System
+        window.zenListening = false;
+        window.zenStream = null;
+        window.zenRecognition = null;
+        
+        window.toggleZenVoice = async function() {
+            // Support both NODES and DANWA views - check which is visible
+            const danwaView = document.getElementById('danwa-view');
+            const isDanwa = danwaView && danwaView.style.display !== 'none';
+            
+            const btn = isDanwa ? document.getElementById('danwa-talk-btn') : document.getElementById('zen-talk-btn');
+            const status = isDanwa ? document.getElementById('danwa-status') : document.getElementById('zen-status');
+            const thought = document.getElementById('zen-thought');
+            
+            if (window.zenListening) {
+                // Stop listening
+                window.zenListening = false;
+                if (window.zenRecognition) window.zenRecognition.stop();
+                if (window.zenStream) window.zenStream.getTracks().forEach(t => t.stop());
+                if (window.zenDisconnectAudio) window.zenDisconnectAudio();
+                if (window.zenDisconnectDanwaAudio) window.zenDisconnectDanwaAudio();
+                if (typeof setZenState === 'function') setZenState('idle');
+                if (btn) {
+                    if (btn.id === 'danwa-talk-btn') {
+                        btn.querySelector('.btn-icon').textContent = '🎤';
+                        btn.querySelector('.btn-status').textContent = 'Speak';
+                    } else {
+                        btn.innerHTML = '<span style="font-size:1.1rem;">🎤</span> Talk to Zen';
+                    }
+                }
+                if (status && status.id !== 'danwa-status') status.textContent = 'Click to speak with Zen';
+                return;
+            }
+            
+            // Start listening
+            try {
+                window.zenStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                window.zenListening = true;
+                if (window.zenConnectAudio) window.zenConnectAudio(window.zenStream);
+                if (window.zenConnectDanwaAudio) window.zenConnectDanwaAudio(window.zenStream);
+                if (typeof setZenState === 'function') setZenState('listening');
+                if (btn) {
+                    if (btn.id === 'danwa-talk-btn') {
+                        btn.querySelector('.btn-icon').textContent = '◉';
+                        btn.querySelector('.btn-status').textContent = 'Listening';
+                    } else {
+                        btn.innerHTML = '<span style="font-size:1.1rem;">⏹</span> Stop';
+                    }
+                }
+                if (status && status.id !== 'danwa-status') status.textContent = 'Listening...';
+                if (thought) {
+                    thought.textContent = '';
+                    thought.classList.remove('active');
+                }
+                
+                // Setup speech recognition
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) {
+                    alert('Speech recognition not supported in this browser. Try Chrome.');
+                    return;
+                }
+                
+                window.zenRecognition = new SpeechRecognition();
+                window.zenRecognition.continuous = false;
+                window.zenRecognition.interimResults = true;
+                
+                window.zenRecognition.onresult = async (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    if (status) status.textContent = transcript;
+                    
+                    if (event.results[0].isFinal) {
+                        if (typeof setZenState === 'function') setZenState('thinking');
+                        if (btn && btn.id === 'danwa-talk-btn') {
+                            btn.querySelector('.btn-status').textContent = 'Thinking';
+                        }
+                        if (status) {
+                            if (status.id === 'danwa-status') status.textContent = 'Thinking';
+                            else status.textContent = 'Thinking...';
+                        }
+                        
+                        // Check for vision request
+                        const isVision = /see|look|view|camera|eyes|watch/i.test(transcript);
+                        let visionContext = '';
+                        
+                        if (isVision) {
+                            if (status) status.textContent = '👁️ Looking';
+                            try {
+                                const vr = await fetch('http://me.local:8028/analyze?prompt=Describe+what+you+see');
+                                const vd = await vr.json();
+                                if (vd.description) visionContext = '\\n[VISION]: ' + vd.description;
+                            } catch(e) { console.log('Vision unavailable'); }
+                        }
+                        
+                        // Send to LLM
+                        try {
+                            const resp = await fetch('http://localhost:3000/api/chat/completions', {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': 'Bearer sk-671e852c73d743d5bbd695e1e796cd1b',
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    model: 'llama3.1:8b',
+                                    messages: [{
+                                        role: 'system',
+                                        content: 'You are Zen, AI of the VOIGHT CLUSTER robot system. KOKORO=brain, ME=eyes, TE=hands. Be concise (1-2 sentences).' + visionContext
+                                    }, {
+                                        role: 'user', 
+                                        content: transcript
+                                    }]
+                                })
+                            });
+                            const data = await resp.json();
+                            const reply = data.choices[0].message.content;
+                            
+                            if (typeof setZenState === 'function') setZenState('speaking');
+                            if (btn && btn.id === 'danwa-talk-btn') {
+                                btn.querySelector('.btn-status').textContent = 'Speaking';
+                            }
+                            if (status) status.textContent = reply;
+                            if (thought) {
+                                thought.textContent = reply;
+                                thought.classList.add('active');
+                            }
+                            
+                            // Speak response
+                            const utterance = new SpeechSynthesisUtterance(reply);
+                            utterance.onend = () => window.toggleZenVoice();
+                            speechSynthesis.speak(utterance);
+                            
+                        } catch(e) {
+                            if (status) status.textContent = 'LLM error: ' + e.message;
+                        }
+                    }
+                };
+                
+                window.zenRecognition.onend = () => {
+                    if (window.zenListening && !speechSynthesis.speaking) {
+                        window.zenRecognition.start();
+                    }
+                };
+                
+                window.zenRecognition.start();
+                
+            } catch(e) {
+                alert('Microphone error: ' + e.message);
+            }
+        };
+    </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;700&family=JetBrains+Mono:wght@400;600&display=swap');
         
@@ -539,14 +738,554 @@ async def dashboard(request: Request):
         .refresh-note {
             opacity: 0.5;
         }
+        
+        /* Zen Presence Colors */
+        :root {
+            --zen-red: #e63946;
+            --zen-indigo: #6366f1;
+            --zen-bg: #0a0a0f;
+            --zen-glow: rgba(99, 102, 241, 0.15);
+        }
+        
+        /* Logo */
+        .zen-logo {
+            position: fixed;
+            top: 15px;
+            left: 20px;
+            z-index: 1000;
+            font-size: 2rem;
+            color: var(--zen-red);
+            opacity: 0.6;
+            transition: opacity 0.4s ease;
+            text-shadow: 0 0 25px rgba(230, 57, 70, 0.4);
+        }
+        
+        .zen-logo:hover {
+            opacity: 1;
+        }
+        
+        /* Kanji Mode Selector */
+        .zen-mode-selector {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            opacity: 0.75;
+            transition: opacity 0.4s ease;
+        }
+        
+        .zen-mode-selector:hover {
+            opacity: 1;
+        }
+        
+        .zen-mode-btn {
+            padding: 10px 14px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(0, 0, 0, 0.25);
+            color: rgba(255,255,255,0.4);
+            font-size: 1.1rem;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            font-family: 'Noto Sans JP', sans-serif;
+            position: relative;
+        }
+        
+        .zen-mode-btn:hover {
+            color: rgba(255,255,255,0.7);
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+        
+        .zen-mode-btn:focus {
+            outline: 2px solid var(--zen-indigo);
+            outline-offset: 2px;
+        }
+        
+        .zen-mode-btn[aria-selected="true"] {
+            color: rgba(255,255,255,0.9);
+            border-color: transparent;
+        }
+        
+        .zen-mode-btn[aria-selected="true"]::after {
+            content: '';
+            position: absolute;
+            bottom: 2px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 50%;
+            height: 2px;
+            background: var(--zen-indigo);
+            box-shadow: 0 0 8px var(--zen-indigo);
+            border-radius: 2px;
+        }
+        
+        /* Tooltip */
+        .zen-mode-btn .tooltip {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 4px 8px;
+            background: rgba(0, 0, 0, 0.85);
+            color: rgba(255,255,255,0.6);
+            font-size: 0.6rem;
+            font-family: 'JetBrains Mono', monospace;
+            border-radius: 4px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            margin-top: 6px;
+            letter-spacing: 0.03em;
+        }
+        
+        .zen-mode-btn:hover .tooltip,
+        .zen-mode-btn:focus .tooltip {
+            opacity: 1;
+        }
+        
+        /* Legacy view-toggle support */
+        .view-toggle { display: none; }
+        
+        /* DANWA View - Zen Presence */
+        .danwa-view {
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: var(--zen-bg);
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Micro grain overlay */
+        .danwa-view::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+            opacity: 0.03;
+            pointer-events: none;
+        }
+        
+        /* Presence bloom */
+        .danwa-view::after {
+            content: '';
+            position: absolute;
+            top: 30%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            height: 60%;
+            background: radial-gradient(ellipse, var(--zen-glow) 0%, transparent 70%);
+            pointer-events: none;
+            opacity: 0.8;
+        }
+        
+        .zen-face {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 40px;
+            max-width: 900px;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* State Ring - binds eyes together */
+        .zen-state-ring {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 750px;
+            height: 300px;
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 50%;
+            pointer-events: none;
+            box-shadow: 0 0 40px rgba(99, 102, 241, 0.1),
+                        inset 0 0 60px rgba(99, 102, 241, 0.05);
+            animation: stateRingBreath 4s ease-in-out infinite;
+        }
+        
+        @keyframes stateRingBreath {
+            0%, 100% { opacity: 0.4; transform: translateX(-50%) scale(1); }
+            50% { opacity: 0.7; transform: translateX(-50%) scale(1.02); }
+        }
+        
+        /* Eyes - Living Organs */
+        .zen-eyes {
+            display: flex;
+            gap: 50px;
+            justify-content: center;
+            position: relative;
+        }
+        
+        .eye {
+            width: 320px;
+            height: 220px;
+            border-radius: 50% / 45%;
+            overflow: hidden;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            background: #050508;
+            position: relative;
+            transition: all 0.4s ease;
+        }
+        
+        /* Inner vignette */
+        .eye::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.6) 100%);
+            pointer-events: none;
+            z-index: 2;
+        }
+        
+        /* Photonic inner halo */
+        .eye::after {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: inherit;
+            box-shadow: inset 0 0 30px rgba(99, 102, 241, 0.2);
+            pointer-events: none;
+            z-index: 1;
+            animation: eyeHaloBreath 3s ease-in-out infinite;
+        }
+        
+        @keyframes eyeHaloBreath {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+        
+        .eye.left-eye {
+            animation: eyeDriftLeft 8s ease-in-out infinite;
+        }
+        
+        .eye.right-eye {
+            animation: eyeDriftRight 8s ease-in-out infinite;
+        }
+        
+        @keyframes eyeDriftLeft {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(-1px, 0.5px); }
+        }
+        
+        @keyframes eyeDriftRight {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(1px, -0.5px); }
+        }
+        
+        .eye img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.9;
+        }
+        
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            .eye.left-eye, .eye.right-eye { animation: none; }
+            .zen-state-ring { animation: none; opacity: 0.5; }
+            .eye::after { animation: none; opacity: 0.7; }
+        }
+        
+        /* Mouth - Voice Field */
+        .zen-mouth {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 35px;
+            width: 100%;
+            max-width: 700px;
+            margin-top: 20px;
+        }
+        
+        .mouth-container {
+            width: 100%;
+            background: rgba(5, 5, 10, 0.9);
+            border-radius: 100px;
+            border: 1px solid rgba(99, 102, 241, 0.15);
+            box-shadow: 0 0 50px rgba(99, 102, 241, 0.08);
+            transition: all 0.4s ease;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        /* Wave clip container - perfect pill clipping */
+        .wave-clip {
+            position: relative;
+            width: 100%;
+            height: 130px;
+            border-radius: inherit;
+            overflow: hidden;
+        }
+        
+        #danwa-waveform {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        
+        /* State-based mouth styling */
+        .danwa-view[data-state="listening"] .mouth-container {
+            border-color: rgba(99, 102, 241, 0.3);
+            box-shadow: 0 0 70px rgba(99, 102, 241, 0.12);
+        }
+        
+        .danwa-view[data-state="speaking"] .mouth-container {
+            border-color: rgba(230, 57, 70, 0.2);
+            box-shadow: 0 0 70px rgba(230, 57, 70, 0.1);
+        }
+        
+        .danwa-status {
+            display: none;
+        }
+        
+        /* Speak Button - Subtle Zen-Consent */
+        .danwa-talk-btn {
+            padding: 18px 50px;
+            font-size: 0.9rem;
+            background: rgba(15, 15, 20, 0.9);
+            color: rgba(255, 255, 255, 0.75);
+            border: 1px solid rgba(230, 57, 70, 0.25);
+            border-radius: 40px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            font-weight: 400;
+            box-shadow: none;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 200px;
+            justify-content: center;
+            letter-spacing: 0.04em;
+            position: relative;
+        }
+        
+        .danwa-talk-btn:hover {
+            border-color: rgba(230, 57, 70, 0.4);
+            box-shadow: 0 0 20px rgba(230, 57, 70, 0.1);
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .danwa-talk-btn:focus {
+            outline: 2px solid rgba(230, 57, 70, 0.4);
+            outline-offset: 3px;
+        }
+        
+        .danwa-talk-btn:active {
+            background: rgba(20, 20, 25, 0.95);
+        }
+        
+        /* Button state variations - subtle */
+        .danwa-view[data-state="listening"] .danwa-talk-btn {
+            background: rgba(15, 15, 25, 0.9);
+            border-color: rgba(99, 102, 241, 0.3);
+            color: rgba(255, 255, 255, 0.8);
+        }
+        
+        .danwa-view[data-state="listening"] .danwa-talk-btn:hover {
+            border-color: rgba(99, 102, 241, 0.45);
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
+        }
+        
+        .danwa-view[data-state="thinking"] .danwa-talk-btn {
+            background: rgba(12, 12, 20, 0.9);
+            border-color: rgba(99, 102, 241, 0.2);
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .danwa-view[data-state="speaking"] .danwa-talk-btn {
+            border-color: rgba(230, 57, 70, 0.35);
+        }
+        
+        .danwa-talk-btn .btn-icon {
+            font-size: 1.1rem;
+            opacity: 0.8;
+        }
+        
+        .danwa-talk-btn .btn-status {
+            max-width: 260px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        /* State ring variations */
+        .danwa-view[data-state="listening"] .zen-state-ring {
+            border-color: rgba(99, 102, 241, 0.4);
+            box-shadow: 0 0 60px rgba(99, 102, 241, 0.2);
+            animation: stateRingListen 2s ease-in-out infinite;
+        }
+        
+        .danwa-view[data-state="speaking"] .zen-state-ring {
+            border-color: rgba(230, 57, 70, 0.3);
+            box-shadow: 0 0 60px rgba(230, 57, 70, 0.15);
+            animation: stateRingSpeak 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes stateRingListen {
+            0%, 100% { opacity: 0.6; transform: translateX(-50%) scale(1); }
+            50% { opacity: 0.9; transform: translateX(-50%) scale(0.99); }
+        }
+        
+        @keyframes stateRingSpeak {
+            0%, 100% { opacity: 0.5; transform: translateX(-50%) scale(1); }
+            50% { opacity: 0.8; transform: translateX(-50%) scale(1.01); }
+        }
+        
+        /* Mode-based variations */
+        
+        /* 点 ten - nodes: minimal, constellation */
+        .danwa-view[data-mode="ten"] .eye::after {
+            opacity: 0.3;
+        }
+        .danwa-view[data-mode="ten"] .zen-state-ring {
+            opacity: 0.3;
+        }
+        
+        /* 形 kata - form: default */
+        
+        /* 身 mi - body: deeper, stronger vignette */
+        .danwa-view[data-mode="mi"] .eye::before {
+            background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.75) 100%);
+        }
+        .danwa-view[data-mode="mi"] .eye {
+            animation-duration: 6s;
+        }
+        .danwa-view[data-mode="mi"] .mouth-container {
+            transform: scale(0.95);
+        }
+        
+        /* 間 ma - space: reduced chrome, ambient */
+        .danwa-view[data-mode="ma"] .eye {
+            border-color: rgba(99, 102, 241, 0.15);
+        }
+        .danwa-view[data-mode="ma"] .mouth-container {
+            border-color: rgba(99, 102, 241, 0.1);
+        }
+        .danwa-view[data-mode="ma"] .zen-state-ring {
+            opacity: 0.25;
+        }
+        .danwa-view[data-mode="ma"]::after {
+            width: 90%;
+            height: 70%;
+        }
+        
+        /* 場 ba - field: calmer, breath baseline */
+        .danwa-view[data-mode="ba"] .eye::after {
+            animation: none;
+            opacity: 0.4;
+        }
+        .danwa-view[data-mode="ba"] .zen-state-ring {
+            opacity: 0.2;
+            animation: none;
+        }
+        .danwa-view[data-mode="ba"] .eye {
+            animation: none;
+        }
+        
+        .zen-thought-bubble {
+            min-height: 40px;
+            text-align: center;
+            color: var(--accent);
+            font-size: 1.1rem;
+            font-style: italic;
+            max-width: 500px;
+            line-height: 1.5;
+            padding: 15px 25px;
+            background: rgba(230, 57, 70, 0.1);
+            border: 1px solid rgba(230, 57, 70, 0.3);
+            border-radius: 20px;
+            margin-bottom: 20px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .zen-thought-bubble.active {
+            opacity: 1;
+        }
+        
+        /* Adjust nodes view for toggle */
+        .nodes-view {
+            padding-top: 60px;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <div class="title-kanji">恕</div>
-            <h1>VOIGHT CLUSTER</h1>
-        </header>
+    <!-- Logo -->
+    <div class="zen-logo">⟁</div>
+    
+    <!-- Kanji Mode Selector -->
+    <div class="zen-mode-selector" role="tablist" aria-label="Zen mode selector">
+        <button class="zen-mode-btn" role="tab" aria-selected="false" aria-label="Nodes (Ten)" data-mode="ten" onclick="setZenMode('ten')">
+            点<span class="tooltip">Nodes (TEN)</span>
+        </button>
+        <button class="zen-mode-btn" role="tab" aria-selected="true" aria-label="Form (Kata)" data-mode="kata" onclick="setZenMode('kata')">
+            形<span class="tooltip">Form (KATA)</span>
+        </button>
+        <button class="zen-mode-btn" role="tab" aria-selected="false" aria-label="Body (Mi)" data-mode="mi" onclick="setZenMode('mi')">
+            身<span class="tooltip">Body (MI)</span>
+        </button>
+        <button class="zen-mode-btn" role="tab" aria-selected="false" aria-label="Space (Ma)" data-mode="ma" onclick="setZenMode('ma')">
+            間<span class="tooltip">Space (MA)</span>
+        </button>
+        <button class="zen-mode-btn" role="tab" aria-selected="false" aria-label="Field (Ba)" data-mode="ba" onclick="setZenMode('ba')">
+            場<span class="tooltip">Field (BA)</span>
+        </button>
+    </div>
+    
+    <!-- DANWA Mode - Zen's Face -->
+    <div id="danwa-view" class="danwa-view" data-state="idle" style="display: none;">
+        <div class="zen-face">
+            
+            <!-- State Ring - binds eyes -->
+            <div class="zen-state-ring"></div>
+            
+            <!-- Thought Bubble - Above Eyes (Brain) -->
+            <div class="zen-thought-bubble" id="zen-thought"></div>
+            
+            <!-- Eyes - Camera Feed -->
+            <div class="zen-eyes">
+                <div class="eye left-eye">
+                    <img src="http://me.local:8028/stream" alt="Left Eye" onerror="this.src=''; this.alt='👁️'">
+                </div>
+                <div class="eye right-eye">
+                    <img src="http://me.local:8028/stream" alt="Right Eye" onerror="this.src=''; this.alt='👁️'">
+                </div>
+            </div>
+            
+            <!-- Mouth - Voice Interface -->
+            <div class="zen-mouth">
+                <div class="mouth-container">
+                    <div class="wave-clip">
+                        <canvas id="danwa-waveform"></canvas>
+                    </div>
+                </div>
+                <button id="danwa-talk-btn" class="danwa-talk-btn" onclick="toggleZenVoice()">
+                    <span class="btn-icon">🎤</span>
+                    <span id="danwa-status" class="btn-status">Speak</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- NODES Mode - Original Dashboard -->
+    <div id="nodes-view" class="nodes-view">
+        <div class="container">
+            <header>
+                <div class="title-kanji">恕</div>
+                <h1>VOIGHT CLUSTER</h1>
+            </header>
         
         <div class="summary">
             <div class="stat">
@@ -600,6 +1339,8 @@ async def dashboard(request: Request):
                 def progress_bar(percent):
                     return f'<div class="progress-bar-bg"><div class="progress-bar-fill" style="width: {percent}%"></div></div>'
                 
+                gpu_list = hw.get("gpus", [])
+                
                 html += f"""
                 <div class="node-details">
                     <div class="detail-row">
@@ -612,12 +1353,34 @@ async def dashboard(request: Request):
                         <span class="detail-label">RAM</span>
                         <span>{ram_used} / {ram_total} GB</span>
                     </div>
-"""
-                if gpus > 0:
-                    html += f"""
                     <div class="detail-row">
-                        <span class="detail-label">GPUs</span>
-                        <span>{gpus}</span>
+                        <span class="detail-label">GPU</span>
+                        <span>{gpus} detected</span>
+                    </div>
+"""
+                # Show GPU details - always show 2 rows for visual alignment
+                for i in range(2):
+                    if i < len(gpu_list):
+                        gpu = gpu_list[i]
+                        gpu_mem_used = gpu.get('memory_used_mb', 0)
+                        gpu_mem_total = gpu.get('memory_total_mb', 0)
+                        gpu_mem_pct = (gpu_mem_used / gpu_mem_total * 100) if gpu_mem_total > 0 else 0
+                        html += f"""
+                    <div class="detail-row" style="padding-left: 1rem;">
+                        <span class="detail-label" style="font-size:0.7rem;">GPU {i}</span>
+                        <div style="display:flex; gap:8px; align-items:center; font-size:0.75rem;">
+                            {progress_bar(gpu_mem_pct)} <span>{gpu_mem_used}/{gpu_mem_total} MB</span>
+                        </div>
+                    </div>
+"""
+                    else:
+                        # Empty placeholder row for alignment
+                        html += f"""
+                    <div class="detail-row" style="padding-left: 1rem; opacity: 0.3;">
+                        <span class="detail-label" style="font-size:0.7rem;">GPU {i}</span>
+                        <div style="display:flex; gap:8px; align-items:center; font-size:0.75rem;">
+                            {progress_bar(0)} <span>—</span>
+                        </div>
                     </div>
 """
                 html += """
@@ -627,25 +1390,333 @@ async def dashboard(request: Request):
             if "capabilities" in node.status:
                 caps = node.status["capabilities"]
                 cap_list = [k for k, v in caps.items() if v]
-                if cap_list:
-                    html += f"""
+                # Always show 3 capability lines for visual alignment
+                html += """
+                <div class="node-details">
+"""
+                for i in range(3):
+                    if i < len(cap_list):
+                        cap_name = cap_list[i].replace('_', ' ').title()
+                        html += f"""
+                    <div class="detail-row">
+                        <span class="detail-label">{"Capabilities" if i == 0 else ""}</span>
+                        <span class="detail-value">{cap_name}</span>
+                    </div>
+"""
+                    else:
+                        html += f"""
+                    <div class="detail-row" style="opacity: 0.3;">
+                        <span class="detail-label">{"Capabilities" if i == 0 else ""}</span>
+                        <span class="detail-value">—</span>
+                    </div>
+"""
+                html += """
+                </div>
+"""
+            
+            # Show sensor status for ME node (3D Camera, Lidar)
+            if node.name == "me":
+                hw = node.status.get("hardware", {})
+                cameras = hw.get("cameras_detected", 0)
+                lidar_connected = node.status.get("lidar", {}).get("connected", False) if "lidar" in node.status else False
+                
+                cam_class = "online" if cameras > 0 else "offline"
+                lidar_class = "online" if lidar_connected else "offline"
+                
+                html += f"""
                 <div class="node-details">
                     <div class="detail-row">
-                        <span class="detail-label">Capabilities</span>
-                        <span class="detail-value">{", ".join(cap_list[:2])}</span>
+                        <span class="detail-label">3D Camera</span>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <div class="status-dot {cam_class}" style="width:8px;height:8px;"></div>
+                            <span>{"Connected" if cameras > 0 else "Disconnected"}</span>
+                        </div>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Lidar</span>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <div class="status-dot {lidar_class}" style="width:8px;height:8px;"></div>
+                            <span>{"Connected" if lidar_connected else "Disconnected"}</span>
+                        </div>
                     </div>
                 </div>
 """
             
             # Show camera feed if available
             if "capabilities" in node.status and node.status["capabilities"].get("camera_array", False):
-                snapshot_url = f"{node.url}/snapshot?camera=0"
-                # Use a timestamp to prevent caching
+                # Use MJPEG stream for smooth video (port 8028)
+                stream_url = f"http://{node.url.split('//')[1].split(':')[0]}:8028/stream"
                 html += f"""
                 <div class="node-details">
                     <div class="detail-row" style="flex-direction: column; align-items: flex-start; gap: 0.5rem;">
-                        <span class="detail-label">Live Feed</span>
-                        <img src="{snapshot_url}" style="width: 100%; border-radius: 4px; border: 1px solid var(--border);" onload="setTimeout(() => this.src = '{snapshot_url}&t=' + new Date().getTime(), 1000)" onerror="this.style.display='none'">
+                        <span class="detail-label">Live Stream</span>
+                        <img src="{stream_url}" style="width: 100%; border-radius: 4px; border: 1px solid var(--border);" onerror="this.src=''; this.alt='Stream offline'">
+                    </div>
+                </div>
+"""
+            
+            # Show voice UI for KOKORO node
+            if node.name == "kokoro" and node.status.get("voice_ui", {}).get("enabled", False):
+                voice_url = node.status.get("voice_ui", {}).get("url", "http://kokoro.local:3000")
+                html += f"""
+                <div class="node-details">
+                    <div class="detail-row" style="flex-direction: column; align-items: flex-start; gap: 0.5rem;">
+                        <span class="detail-label">🎙️ Zen Voice Interface</span>
+                        
+                        <!-- Voice Visualizer Canvas -->
+                        <div id="zen-voice-container" style="width: 100%; background: linear-gradient(180deg, #0a0a0a 0%, #111 100%); 
+                                border-radius: 12px; border: 1px solid var(--border); padding: 20px; position: relative; overflow: hidden;">
+                            
+                            <!-- Ambient glow effect -->
+                            <div id="zen-glow" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                                    width: 200px; height: 200px; background: radial-gradient(circle, rgba(230,57,70,0.15) 0%, transparent 70%);
+                                    border-radius: 50%; pointer-events: none; transition: all 0.3s;"></div>
+                            
+                            <!-- Main waveform canvas -->
+                            <canvas id="zen-waveform" width="600" height="120" style="width: 100%; height: 120px; display: block;"></canvas>
+                            
+                            <!-- Status text -->
+                            <div id="zen-status" style="text-align: center; margin-top: 12px; font-size: 0.8rem; color: var(--text-secondary);
+                                    letter-spacing: 2px; text-transform: uppercase;">
+                                Click to activate voice
+                            </div>
+                            
+                            <!-- Listening indicator -->
+                            <div id="zen-listening" style="display: none; text-align: center; margin-top: 8px;">
+                                <span style="display: inline-block; width: 8px; height: 8px; background: var(--accent); 
+                                        border-radius: 50%; animation: pulse 1.5s infinite;"></span>
+                                <span style="margin-left: 8px; color: var(--accent); font-size: 0.75rem;">LISTENING</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Control buttons -->
+                        <div style="display: flex; gap: 10px; width: 100%; justify-content: center; margin-top: 8px;">
+                            <button id="zen-talk-btn" onclick="toggleZenVoice()" 
+                                    style="padding: 10px 24px; background: var(--accent); color: white; border: none; 
+                                           border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500;
+                                           transition: all 0.2s; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 1.1rem;">🎤</span> Talk to Zen
+                            </button>
+                            <a href="{voice_url}" target="_blank" 
+                               style="padding: 10px 16px; background: transparent; color: var(--text-secondary); 
+                                      border: 1px solid var(--border); border-radius: 6px; text-decoration: none;
+                                      font-size: 0.8rem; transition: all 0.2s; display: flex; align-items: center;"
+                               onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'" 
+                               onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)'">
+                                Open Chat ↗
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                
+                <style>
+                    @keyframes pulse {{
+                        0%, 100% {{ opacity: 1; transform: scale(1); }}
+                        50% {{ opacity: 0.5; transform: scale(1.2); }}
+                    }}
+                </style>
+                
+                <script>
+                    // Zen Voice Visualizer - Voice Reactive
+                    (function() {{
+                        const canvas = document.getElementById('zen-waveform');
+                        const glow = document.getElementById('zen-glow');
+                        if (!canvas) return;
+                        
+                        // Retina scaling
+                        const rect = canvas.getBoundingClientRect();
+                        canvas.width = rect.width * 2;
+                        canvas.height = rect.height * 2;
+                        const ctx = canvas.getContext('2d');
+                        ctx.scale(2, 2);
+                        
+                        const width = rect.width;
+                        const height = rect.height;
+                        let phase = 0;
+                        
+                        // Audio analysis for voice reactivity
+                        let analyser = null;
+                        let dataArray = null;
+                        
+                        // Expose function to connect audio
+                        window.zenConnectAudio = function(stream) {{
+                            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                            analyser = audioCtx.createAnalyser();
+                            analyser.fftSize = 2048;
+                            const source = audioCtx.createMediaStreamSource(stream);
+                            source.connect(analyser);
+                            dataArray = new Uint8Array(analyser.frequencyBinCount);
+                        }};
+                        
+                        window.zenDisconnectAudio = function() {{
+                            analyser = null;
+                            dataArray = null;
+                        }};
+                        
+                        function animate() {{
+                            ctx.fillStyle = 'rgba(10, 10, 10, 0.25)';
+                            ctx.fillRect(0, 0, width, height);
+                            
+                            const centerY = height / 2;
+                            
+                            if (analyser && dataArray) {{
+                                // Voice-reactive mode
+                                analyser.getByteTimeDomainData(dataArray);
+                                
+                                // Calculate amplitude
+                                let sum = 0;
+                                for (let i = 0; i < dataArray.length; i++) {{
+                                    sum += Math.abs(dataArray[i] - 128);
+                                }}
+                                const avgAmp = sum / dataArray.length;
+                                
+                                // Glow reacts to voice
+                                if (glow) {{
+                                    const glowSize = 150 + avgAmp * 4;
+                                    const glowOpacity = 0.15 + avgAmp * 0.008;
+                                    glow.style.width = glowSize + 'px';
+                                    glow.style.height = glowSize + 'px';
+                                    glow.style.background = `radial-gradient(circle, rgba(230,57,70,${{glowOpacity}}) 0%, transparent 70%)`;
+                                }}
+                                
+                                // Draw actual waveform
+                                ctx.beginPath();
+                                const gradient = ctx.createLinearGradient(0, 0, width, 0);
+                                gradient.addColorStop(0, 'rgba(230, 57, 70, 0.3)');
+                                gradient.addColorStop(0.5, 'rgba(230, 57, 70, 1)');
+                                gradient.addColorStop(1, 'rgba(230, 57, 70, 0.3)');
+                                ctx.strokeStyle = gradient;
+                                ctx.lineWidth = 2.5;
+                                
+                                const sliceWidth = width / dataArray.length;
+                                let x = 0;
+                                for (let i = 0; i < dataArray.length; i++) {{
+                                    const v = dataArray[i] / 128.0;
+                                    const y = (v * height) / 2;
+                                    if (i === 0) ctx.moveTo(x, y);
+                                    else ctx.lineTo(x, y);
+                                    x += sliceWidth;
+                                }}
+                                ctx.stroke();
+                                
+                                // Glow trail
+                                ctx.beginPath();
+                                ctx.strokeStyle = 'rgba(230, 57, 70, 0.15)';
+                                ctx.lineWidth = 8;
+                                x = 0;
+                                for (let i = 0; i < dataArray.length; i++) {{
+                                    const v = dataArray[i] / 128.0;
+                                    const y = (v * height) / 2;
+                                    if (i === 0) ctx.moveTo(x, y);
+                                    else ctx.lineTo(x, y);
+                                    x += sliceWidth;
+                                }}
+                                ctx.stroke();
+                                
+                            }} else {{
+                                // Idle animation mode
+                                const baseAmplitude = 18 + Math.sin(phase * 0.5) * 6;
+                                
+                                // Primary wave
+                                ctx.beginPath();
+                                ctx.strokeStyle = 'rgba(230, 57, 70, 0.7)';
+                                ctx.lineWidth = 2.5;
+                                for (let x = 0; x < width; x++) {{
+                                    const y = centerY 
+                                        + Math.sin(x * 0.018 + phase) * baseAmplitude
+                                        + Math.sin(x * 0.045 + phase * 1.3) * (baseAmplitude * 0.35);
+                                    if (x === 0) ctx.moveTo(x, y);
+                                    else ctx.lineTo(x, y);
+                                }}
+                                ctx.stroke();
+                                
+                                // Secondary wave
+                                ctx.beginPath();
+                                ctx.strokeStyle = 'rgba(230, 57, 70, 0.25)';
+                                ctx.lineWidth = 1.5;
+                                for (let x = 0; x < width; x++) {{
+                                    const y = centerY + Math.sin(x * 0.012 - phase * 0.7) * (baseAmplitude * 0.6);
+                                    if (x === 0) ctx.moveTo(x, y);
+                                    else ctx.lineTo(x, y);
+                                }}
+                                ctx.stroke();
+                                
+                                // Glow pulse
+                                if (glow) {{
+                                    const glowSize = 180 + Math.sin(phase * 0.8) * 20;
+                                    glow.style.width = glowSize + 'px';
+                                    glow.style.height = glowSize + 'px';
+                                }}
+                            }}
+                            
+                            phase += 0.035;
+                            requestAnimationFrame(animate);
+                        }}
+                        animate();
+                    }})();
+                </script>
+"""
+            
+            # Show robot arm status for TE node
+            if "arm" in node.status:
+                arm = node.status["arm"]
+                arm_connected = arm.get("connected", False)
+                arm_enabled = arm.get("enabled", False)
+                joints = arm.get("joints", [90, 90, 90, 90, 90, 90])
+                joint_names = ["Base", "Shoulder", "Elbow", "Wrist↕", "Wrist↻", "Grip"]
+                
+                conn_class = "online" if arm_connected else "offline"
+                ena_class = "online" if arm_enabled else "offline"
+                
+                html += f"""
+                <div class="node-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Arduino</span>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <div class="status-dot {conn_class}" style="width:8px;height:8px;"></div>
+                            <span>{"Connected" if arm_connected else "Disconnected"}</span>
+                        </div>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Servos</span>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <div class="status-dot {ena_class}" style="width:8px;height:8px;"></div>
+                            <span>{"Enabled" if arm_enabled else "Disabled"}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="node-details" style="padding-top:0.75rem;">
+                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+"""
+                for i, (name, angle) in enumerate(zip(joint_names, joints)):
+                    # Color based on position (green at center, yellow at extremes)
+                    deviation = abs(angle - 90) / 90
+                    if deviation < 0.3:
+                        bar_color = "var(--online)"
+                    elif deviation < 0.6:
+                        bar_color = "#f39c12"
+                    else:
+                        bar_color = "var(--accent)"
+                    
+                    html += f"""
+                        <div id="joint-{i}" style="text-align:center; padding:4px; background:rgba(255,255,255,0.03); border-radius:4px;">
+                            <div style="font-size:0.65rem; color:var(--text-secondary); margin-bottom:2px;">{name}</div>
+                            <div id="joint-val-{i}" style="font-size:1rem; font-weight:600; color:{bar_color};">{int(angle)}°</div>
+                            <div style="height:3px; background:#333; border-radius:2px; margin-top:3px; overflow:hidden;">
+                                <div id="joint-bar-{i}" style="height:100%; width:{angle/180*100}%; background:{bar_color}; border-radius:2px; transition: width 0.2s;"></div>
+                            </div>
+                        </div>
+"""
+                html += """
+                    </div>
+                    <div style="margin-top:10px; text-align:center;">
+                        <a href="http://te.local:8027/dashboard" target="_blank" 
+                           style="display:inline-block; padding:6px 16px; background:var(--accent); color:white; 
+                                  text-decoration:none; border-radius:4px; font-size:0.75rem; 
+                                  transition: opacity 0.2s;"
+                           onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
+                            Open Arm Control
+                        </a>
                     </div>
                 </div>
 """
@@ -698,9 +1769,285 @@ async def dashboard(request: Request):
     html += """
         <footer>
             <p>KOKORO Orchestration Node • v0.1.1</p>
-            <p class="refresh-note">Auto-refreshes every 10 seconds</p>
+            <p class="refresh-note">Real-time dashboard</p>
         </footer>
     </div>
+    
+    <script>
+        // Real-time TE arm updates
+        const jointNames = ['Base', 'Shoulder', 'Elbow', 'Wrist↕', 'Wrist↻', 'Grip'];
+        
+        function getColor(angle) {
+            const deviation = Math.abs(angle - 90) / 90;
+            if (deviation < 0.3) return 'var(--online)';
+            if (deviation < 0.6) return '#f39c12';
+            return 'var(--accent)';
+        }
+        
+        let teAvailable = true;
+        let teRetryCount = 0;
+        
+        async function updateTeArm() {
+            if (!teAvailable && teRetryCount < 10) {
+                teRetryCount++;
+                return; // Skip if TE was unavailable, retry every 5 seconds
+            }
+            teRetryCount = 0;
+            
+            try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 2000);
+                
+                const response = await fetch('http://te.local:8027/arm/status', {
+                    signal: controller.signal,
+                    mode: 'cors'
+                });
+                clearTimeout(timeout);
+                
+                if (!response.ok) { teAvailable = false; return; }
+                
+                const data = await response.json();
+                teAvailable = true;
+                
+                if (data.joints) {
+                    data.joints.forEach((angle, i) => {
+                        const valEl = document.getElementById('joint-val-' + i);
+                        const barEl = document.getElementById('joint-bar-' + i);
+                        if (valEl && barEl) {
+                            const color = getColor(angle);
+                            valEl.textContent = Math.round(angle) + '°';
+                            valEl.style.color = color;
+                            barEl.style.width = (angle / 180 * 100) + '%';
+                            barEl.style.background = color;
+                        }
+                    });
+                }
+            } catch (e) {
+                teAvailable = false;
+                // Silent fail
+            }
+        }
+        
+        // Update every 500ms
+        setInterval(updateTeArm, 500);
+    </script>
+    </div> <!-- Close nodes-view -->
+    
+    <script>
+        // Zen State & Mode Management
+        window.zenState = 'idle'; // idle | listening | thinking | speaking
+        window.zenMode = 'kata'; // ten | kata | mi | ma | ba
+        
+        function setZenState(state) {
+            window.zenState = state;
+            const danwaView = document.getElementById('danwa-view');
+            if (danwaView) {
+                danwaView.setAttribute('data-state', state);
+            }
+        }
+        
+        function setZenMode(mode) {
+            window.zenMode = mode;
+            const danwaView = document.getElementById('danwa-view');
+            const nodesView = document.getElementById('nodes-view');
+            
+            // Update selector UI
+            document.querySelectorAll('.zen-mode-btn').forEach(btn => {
+                btn.setAttribute('aria-selected', btn.dataset.mode === mode ? 'true' : 'false');
+            });
+            
+            // Set mode attribute
+            if (danwaView) danwaView.setAttribute('data-mode', mode);
+            
+            // Switch view based on mode
+            if (mode === 'ten') {
+                // ten = nodes view
+                if (nodesView) nodesView.style.display = 'block';
+                if (danwaView) danwaView.style.display = 'none';
+            } else {
+                // Other modes = danwa/face view
+                if (nodesView) nodesView.style.display = 'none';
+                if (danwaView) {
+                    danwaView.style.display = 'flex';
+                    setZenState('idle');
+                    initDanwaWaveform();
+                }
+            }
+        }
+        
+        // Legacy view switching (for compatibility)
+        function switchView(view) {
+            if (view === 'nodes') setZenMode('ten');
+            else setZenMode('kata');
+        }
+        
+        // DANWA waveform animation with voice reactivity
+        let danwaAnimating = false;
+        let danwaAnalyser = null;
+        let danwaDataArray = null;
+        
+        // Connect audio to DANWA waveform
+        window.zenConnectDanwaAudio = function(stream) {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            danwaAnalyser = audioCtx.createAnalyser();
+            danwaAnalyser.fftSize = 2048;
+            const source = audioCtx.createMediaStreamSource(stream);
+            source.connect(danwaAnalyser);
+            danwaDataArray = new Uint8Array(danwaAnalyser.frequencyBinCount);
+        };
+        
+        window.zenDisconnectDanwaAudio = function() {
+            danwaAnalyser = null;
+            danwaDataArray = null;
+        };
+        
+        function initDanwaWaveform() {
+            if (danwaAnimating) return;
+            danwaAnimating = true;
+            
+            const canvas = document.getElementById('danwa-waveform');
+            if (!canvas) return;
+            
+            // Size canvas to container
+            const container = canvas.parentElement;
+            const rect = container.getBoundingClientRect();
+            canvas.width = rect.width * 2; // Retina
+            canvas.height = rect.height * 2;
+            
+            const ctx = canvas.getContext('2d');
+            ctx.scale(2, 2); // Retina scale
+            
+            const width = rect.width;
+            const height = rect.height;
+            let phase = 0;
+            
+            function animateMouth() {
+                ctx.fillStyle = 'rgba(5, 5, 5, 0.3)';
+                ctx.fillRect(0, 0, width, height);
+                
+                const centerY = height / 2;
+                
+                const state = window.zenState || 'idle';
+                
+                if (state === 'listening' && danwaAnalyser && danwaDataArray) {
+                    // Listening - voice-reactive with indigo
+                    danwaAnalyser.getByteTimeDomainData(danwaDataArray);
+                    
+                    ctx.beginPath();
+                    const gradient = ctx.createLinearGradient(0, 0, width, 0);
+                    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.3)');
+                    gradient.addColorStop(0.5, 'rgba(99, 102, 241, 1)');
+                    gradient.addColorStop(1, 'rgba(99, 102, 241, 0.3)');
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = 3;
+                    
+                    const sliceWidth = width / danwaDataArray.length;
+                    let x = 0;
+                    for (let i = 0; i < danwaDataArray.length; i++) {
+                        const v = danwaDataArray[i] / 128.0;
+                        const y = (v * height) / 2;
+                        if (i === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                        x += sliceWidth;
+                    }
+                    ctx.stroke();
+                    
+                    // Glow
+                    ctx.beginPath();
+                    ctx.strokeStyle = 'rgba(99, 102, 241, 0.15)';
+                    ctx.lineWidth = 10;
+                    x = 0;
+                    for (let i = 0; i < danwaDataArray.length; i++) {
+                        const v = danwaDataArray[i] / 128.0;
+                        const y = (v * height) / 2;
+                        if (i === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                        x += sliceWidth;
+                    }
+                    ctx.stroke();
+                    
+                } else if (state === 'thinking') {
+                    // Thinking - dampened with shimmer
+                    const amp = 3 + Math.sin(phase * 2) * 2;
+                    const shimmer = Math.random() * 2 - 1;
+                    
+                    ctx.beginPath();
+                    ctx.strokeStyle = 'rgba(99, 102, 241, 0.5)';
+                    ctx.lineWidth = 2;
+                    for (let x = 0; x < width; x++) {
+                        const y = centerY + Math.sin(x * 0.03 + phase) * amp + shimmer;
+                        if (x === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.stroke();
+                    
+                } else if (state === 'speaking') {
+                    // Speaking - rounder, larger amplitude, red
+                    const amp = 25 + Math.sin(phase * 3) * 10;
+                    
+                    ctx.beginPath();
+                    const gradient = ctx.createLinearGradient(0, 0, width, 0);
+                    gradient.addColorStop(0, 'rgba(230, 57, 70, 0.3)');
+                    gradient.addColorStop(0.5, 'rgba(230, 57, 70, 0.9)');
+                    gradient.addColorStop(1, 'rgba(230, 57, 70, 0.3)');
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = 4;
+                    for (let x = 0; x < width; x++) {
+                        const y = centerY + Math.sin(x * 0.015 + phase * 2) * amp 
+                                  + Math.sin(x * 0.04 + phase * 3) * (amp * 0.4);
+                        if (x === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.stroke();
+                    
+                    // Glow
+                    ctx.beginPath();
+                    ctx.strokeStyle = 'rgba(230, 57, 70, 0.15)';
+                    ctx.lineWidth = 12;
+                    for (let x = 0; x < width; x++) {
+                        const y = centerY + Math.sin(x * 0.015 + phase * 2) * amp;
+                        if (x === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.stroke();
+                    
+                } else {
+                    // Idle - slow smooth breathing
+                    const amp = 12 + Math.sin(phase * 0.4) * 6;
+                    
+                    ctx.beginPath();
+                    ctx.strokeStyle = 'rgba(99, 102, 241, 0.5)';
+                    ctx.lineWidth = 2;
+                    for (let x = 0; x < width; x++) {
+                        const y = centerY + Math.sin(x * 0.015 + phase) * amp 
+                                  + Math.sin(x * 0.04 + phase * 0.7) * (amp * 0.3);
+                        if (x === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.stroke();
+                    
+                    // Subtle secondary wave
+                    ctx.beginPath();
+                    ctx.strokeStyle = 'rgba(99, 102, 241, 0.2)';
+                    ctx.lineWidth = 1;
+                    for (let x = 0; x < width; x++) {
+                        const y = centerY + Math.sin(x * 0.01 - phase * 0.5) * (amp * 0.5);
+                        if (x === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.stroke();
+                }
+                
+                phase += 0.04;
+                if (document.getElementById('danwa-view').style.display !== 'none') {
+                    requestAnimationFrame(animateMouth);
+                } else {
+                    danwaAnimating = false;
+                }
+            }
+            animateMouth();
+        }
+    </script>
 </body>
 </html>
 """

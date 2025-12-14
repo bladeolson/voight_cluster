@@ -1,0 +1,7 @@
+# TE Arm - Robot Arm Control Dependencies
+fastapi>=0.100.0
+uvicorn>=0.22.0
+pydantic>=2.0.0
+pyserial>=3.5
+httpx>=0.24.0
+

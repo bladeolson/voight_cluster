@@ -1,0 +1,183 @@
+<?xml version="1.0"?>
+<!-- 
+  TE Arm URDF - 手 (VOIGHT CLUSTER)
+  ==================================
+  6-DOF robot arm model for visualization and motion planning.
+  
+  Adjust link lengths and offsets to match your physical arm!
+-->
+<robot name="te_arm">
+  
+  <!-- Base Link (fixed to world) -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <cylinder radius="0.05" length="0.02"/>
+      </geometry>
+      <material name="dark_grey">
+        <color rgba="0.3 0.3 0.3 1.0"/>
+      </material>
+    </visual>
+  </link>
+  
+  <!-- Base Rotation (J1) -->
+  <joint name="te_base_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="base_rotation"/>
+    <origin xyz="0 0 0.01" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.57" upper="1.57" effort="10" velocity="1.0"/>
+  </joint>
+  
+  <link name="base_rotation">
+    <visual>
+      <origin xyz="0 0 0.025"/>
+      <geometry>
+        <cylinder radius="0.03" length="0.05"/>
+      </geometry>
+      <material name="red">
+        <color rgba="0.8 0.2 0.2 1.0"/>
+      </material>
+    </visual>
+  </link>
+  
+  <!-- Shoulder (J2) -->
+  <joint name="te_shoulder_joint" type="revolute">
+    <parent link="base_rotation"/>
+    <child link="shoulder"/>
+    <origin xyz="0 0 0.05" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="1.57" effort="10" velocity="1.0"/>
+  </joint>
+  
+  <link name="shoulder">
+    <visual>
+      <origin xyz="0 0 0.05"/>
+      <geometry>
+        <box size="0.03 0.04 0.1"/>
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+  </link>
+  
+  <!-- Upper Arm (Elbow J3) -->
+  <joint name="te_elbow_joint" type="revolute">
+    <parent link="shoulder"/>
+    <child link="upper_arm"/>
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="1.57" effort="10" velocity="1.0"/>
+  </joint>
+  
+  <link name="upper_arm">
+    <visual>
+      <origin xyz="0 0 0.04"/>
+      <geometry>
+        <box size="0.025 0.035 0.08"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+  </link>
+  
+  <!-- Wrist Pitch (J4) -->
+  <joint name="te_wrist_pitch_joint" type="revolute">
+    <parent link="upper_arm"/>
+    <child link="wrist_pitch"/>
+    <origin xyz="0 0 0.08" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="1.57" effort="5" velocity="1.0"/>
+  </joint>
+  
+  <link name="wrist_pitch">
+    <visual>
+      <origin xyz="0 0 0.02"/>
+      <geometry>
+        <box size="0.02 0.03 0.04"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+  </link>
+  
+  <!-- Wrist Roll (J5) -->
+  <joint name="te_wrist_roll_joint" type="revolute">
+    <parent link="wrist_pitch"/>
+    <child link="wrist_roll"/>
+    <origin xyz="0 0 0.04" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14" upper="3.14" effort="5" velocity="1.0"/>
+  </joint>
+  
+  <link name="wrist_roll">
+    <visual>
+      <origin xyz="0 0 0.015"/>
+      <geometry>
+        <cylinder radius="0.015" length="0.03"/>
+      </geometry>
+      <material name="red"/>
+    </visual>
+  </link>
+  
+  <!-- Gripper Base -->
+  <joint name="te_gripper_joint" type="revolute">
+    <parent link="wrist_roll"/>
+    <child link="gripper_base"/>
+    <origin xyz="0 0 0.03" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="1.57" effort="2" velocity="1.0"/>
+  </joint>
+  
+  <link name="gripper_base">
+    <visual>
+      <geometry>
+        <box size="0.06 0.02 0.01"/>
+      </geometry>
+      <material name="dark_grey"/>
+    </visual>
+  </link>
+  
+  <!-- Gripper Fingers (simplified - mimic joint) -->
+  <link name="gripper_left">
+    <visual>
+      <origin xyz="0 0 0.015"/>
+      <geometry>
+        <box size="0.01 0.005 0.03"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+  </link>
+  
+  <joint name="gripper_left_joint" type="fixed">
+    <parent link="gripper_base"/>
+    <child link="gripper_left"/>
+    <origin xyz="-0.02 0 0.005"/>
+  </joint>
+  
+  <link name="gripper_right">
+    <visual>
+      <origin xyz="0 0 0.015"/>
+      <geometry>
+        <box size="0.01 0.005 0.03"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+  </link>
+  
+  <joint name="gripper_right_joint" type="fixed">
+    <parent link="gripper_base"/>
+    <child link="gripper_right"/>
+    <origin xyz="0.02 0 0.005"/>
+  </joint>
+  
+  <!-- End Effector Frame -->
+  <link name="end_effector"/>
+  
+  <joint name="end_effector_joint" type="fixed">
+    <parent link="gripper_base"/>
+    <child link="end_effector"/>
+    <origin xyz="0 0 0.04"/>
+  </joint>
+  
+</robot>
+
