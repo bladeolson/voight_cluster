@@ -455,9 +455,28 @@ async def dashboard(request: Request):
                                 thought.classList.add('active');
                             }
                             
+                            // Detect emotion from response
+                            const lowerReply = reply.toLowerCase();
+                            if (lowerReply.includes('sorry') || lowerReply.includes('unfortunately') || lowerReply.includes('afraid')) {
+                                setZenEmotion('concern');
+                            } else if (lowerReply.includes('interesting') || lowerReply.includes('curious') || lowerReply.includes('wonder')) {
+                                setZenEmotion('curious');
+                            } else if (lowerReply.includes('not sure') || lowerReply.includes('unclear') || lowerReply.includes('hmm')) {
+                                setZenEmotion('confused');
+                            } else if (lowerReply.includes('!') || lowerReply.includes('great') || lowerReply.includes('excellent')) {
+                                setZenEmotion('joy');
+                            } else if (lowerReply.includes('alert') || lowerReply.includes('warning') || lowerReply.includes('careful')) {
+                                setZenEmotion('alert');
+                            } else {
+                                setZenEmotion('calm');
+                            }
+                            
                             // Speak response
                             const utterance = new SpeechSynthesisUtterance(reply);
-                            utterance.onend = () => window.toggleZenVoice();
+                            utterance.onend = () => {
+                                setZenEmotion('calm');
+                                window.toggleZenVoice();
+                            };
                             speechSynthesis.speak(utterance);
                             
                         } catch(e) {
@@ -918,6 +937,36 @@ async def dashboard(request: Request):
             50% { opacity: 0.7; transform: translateX(-50%) scale(1.02); }
         }
         
+        /* Eyes Container with Eyebrows */
+        .zen-eyes-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+        
+        /* Zen Eyebrows - Wave-based emotion */
+        .zen-eyebrows {
+            width: 740px;
+            height: 40px;
+            margin-bottom: -8px;
+            position: relative;
+            z-index: 5;
+        }
+        
+        .eyebrow {
+            stroke: rgba(99, 102, 241, 0.7);
+            transition: stroke 0.4s ease;
+        }
+        
+        .danwa-view[data-state="speaking"] .eyebrow {
+            stroke: rgba(200, 80, 100, 0.6);
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+            .zen-eyebrows { opacity: 0.6; }
+        }
+        
         /* Eyes - Living Organs */
         .zen-eyes {
             display: flex;
@@ -1254,13 +1303,31 @@ async def dashboard(request: Request):
             <!-- Thought Bubble - Above Eyes (Brain) -->
             <div class="zen-thought-bubble" id="zen-thought"></div>
             
-            <!-- Eyes - Camera Feed -->
-            <div class="zen-eyes">
-                <div class="eye left-eye">
-                    <img src="http://me.local:8028/stream" alt="Left Eye" onerror="this.src=''; this.alt='👁️'">
-                </div>
-                <div class="eye right-eye">
-                    <img src="http://me.local:8028/stream" alt="Right Eye" onerror="this.src=''; this.alt='👁️'">
+            <!-- Eyes with Eyebrows -->
+            <div class="zen-eyes-container">
+                <!-- Eyebrows - Wave-based emotion indicators -->
+                <svg class="zen-eyebrows" viewBox="0 0 740 60" preserveAspectRatio="xMidYMid meet">
+                    <defs>
+                        <filter id="eyebrow-glow" x="-50%" y="-50%" width="200%" height="200%">
+                            <feGaussianBlur stdDeviation="3" result="blur"/>
+                            <feMerge>
+                                <feMergeNode in="blur"/>
+                                <feMergeNode in="SourceGraphic"/>
+                            </feMerge>
+                        </filter>
+                    </defs>
+                    <path id="eyebrow-left" class="eyebrow" d="" fill="none" stroke-width="2.5" stroke-linecap="round" filter="url(#eyebrow-glow)"/>
+                    <path id="eyebrow-right" class="eyebrow" d="" fill="none" stroke-width="2.5" stroke-linecap="round" filter="url(#eyebrow-glow)"/>
+                </svg>
+                
+                <!-- Eyes - Camera Feed -->
+                <div class="zen-eyes">
+                    <div class="eye left-eye">
+                        <img src="http://me.local:8028/stream" alt="Left Eye" onerror="this.src=''; this.alt='👁️'">
+                    </div>
+                    <div class="eye right-eye">
+                        <img src="http://me.local:8028/stream" alt="Right Eye" onerror="this.src=''; this.alt='👁️'">
+                    </div>
                 </div>
             </div>
             
@@ -1834,9 +1901,161 @@ async def dashboard(request: Request):
     </div> <!-- Close nodes-view -->
     
     <script>
-        // Zen State & Mode Management
+        // Zen State, Mode & Emotion Management
         window.zenState = 'idle'; // idle | listening | thinking | speaking
         window.zenMode = 'kata'; // ten | kata | mi | ma | ba
+        window.zenEmotion = 'calm'; // calm | curious | concern | focus | joy | confused | alert
+        
+        // Eyebrow Wave Parameters (current interpolated values)
+        window.eyebrowParams = {
+            amplitude: 8,
+            baselineOffset: 0,
+            innerBias: 0,
+            outerBias: 0,
+            frequency: 0.02,
+            motionSpeed: 0.02,
+            symmetry: 1.0,
+            phase: 0
+        };
+        
+        // Target parameters based on emotion
+        const emotionPresets = {
+            calm:     { amplitude: 6,  baselineOffset: 0,  innerBias: 0,   outerBias: 0,   frequency: 0.015, motionSpeed: 0.015, symmetry: 1.0 },
+            curious:  { amplitude: 10, baselineOffset: 4,  innerBias: 0,   outerBias: 3,   frequency: 0.018, motionSpeed: 0.02,  symmetry: 0.95 },
+            concern:  { amplitude: 5,  baselineOffset: -2, innerBias: -4,  outerBias: 2,   frequency: 0.02,  motionSpeed: 0.01,  symmetry: 0.98 },
+            focus:    { amplitude: 3,  baselineOffset: -3, innerBias: 0,   outerBias: -1,  frequency: 0.03,  motionSpeed: 0.008, symmetry: 1.0 },
+            joy:      { amplitude: 8,  baselineOffset: 3,  innerBias: 2,   outerBias: 2,   frequency: 0.012, motionSpeed: 0.018, symmetry: 1.0 },
+            confused: { amplitude: 6,  baselineOffset: 0,  innerBias: -1,  outerBias: 2,   frequency: 0.02,  motionSpeed: 0.012, symmetry: 0.7 },
+            alert:    { amplitude: 12, baselineOffset: 5,  innerBias: 0,   outerBias: 0,   frequency: 0.035, motionSpeed: 0.05,  symmetry: 1.0 }
+        };
+        
+        function setZenEmotion(emotion) {
+            window.zenEmotion = emotion;
+        }
+        
+        // Interpolate eyebrow parameters toward target
+        function updateEyebrowParams() {
+            const target = emotionPresets[window.zenEmotion] || emotionPresets.calm;
+            const lerp = 0.03; // Smooth interpolation
+            
+            for (const key in target) {
+                window.eyebrowParams[key] += (target[key] - window.eyebrowParams[key]) * lerp;
+            }
+            window.eyebrowParams.phase += window.eyebrowParams.motionSpeed;
+        }
+        
+        // Generate eyebrow wave path
+        function generateEyebrowPath(isLeft, width, centerY) {
+            const p = window.eyebrowParams;
+            const points = [];
+            const segments = 40;
+            
+            // Asymmetry offset for non-symmetric emotions
+            const asymOffset = isLeft ? (1 - p.symmetry) * 4 : -(1 - p.symmetry) * 4;
+            
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                const x = t * width;
+                
+                // Position along eyebrow (0 = inner, 1 = outer)
+                const innerWeight = 1 - t;
+                const outerWeight = t;
+                
+                // Bias contribution
+                const bias = p.innerBias * innerWeight + p.outerBias * outerWeight;
+                
+                // Wave motion
+                const wave = Math.sin(t * Math.PI * 2 * p.frequency * 100 + p.phase) * p.amplitude * 0.3;
+                
+                // Arch shape (natural brow curve)
+                const arch = Math.sin(t * Math.PI) * p.amplitude;
+                
+                // Combine all
+                const y = centerY + p.baselineOffset + bias + arch + wave + asymOffset;
+                
+                points.push({ x, y });
+            }
+            
+            // Build SVG path
+            let d = `M ${points[0].x} ${points[0].y}`;
+            for (let i = 1; i < points.length; i++) {
+                d += ` L ${points[i].x} ${points[i].y}`;
+            }
+            
+            return d;
+        }
+        
+        // Render eyebrows
+        let eyebrowsAnimating = false;
+        
+        function renderEyebrows() {
+            if (eyebrowsAnimating) return;
+            eyebrowsAnimating = true;
+            
+            function animate() {
+                const leftPath = document.getElementById('eyebrow-left');
+                const rightPath = document.getElementById('eyebrow-right');
+                const danwaView = document.getElementById('danwa-view');
+                
+                if (!leftPath || !rightPath || !danwaView || danwaView.style.display === 'none') {
+                    eyebrowsAnimating = false;
+                    return;
+                }
+                
+                // Check reduced motion preference
+                const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                if (reducedMotion) {
+                    leftPath.setAttribute('d', 'M 50 30 Q 130 22 210 30');
+                    rightPath.setAttribute('d', 'M 530 30 Q 610 22 690 30');
+                    return;
+                }
+                
+                updateEyebrowParams();
+                const p = window.eyebrowParams;
+                
+                // Generate smooth curved paths
+                const leftPoints = [];
+                const rightPoints = [];
+                const segments = 20;
+                
+                for (let i = 0; i <= segments; i++) {
+                    const t = i / segments;
+                    
+                    // Left eyebrow (inner = right side, outer = left side)
+                    const lx = 50 + t * 160;
+                    const innerW = 1 - t;
+                    const outerW = t;
+                    const wave = Math.sin(t * Math.PI + p.phase) * 2;
+                    const arch = Math.sin(t * Math.PI) * p.amplitude;
+                    const bias = p.innerBias * (1-t) + p.outerBias * t;
+                    const asym = (1 - p.symmetry) * 3;
+                    const ly = 30 - p.baselineOffset - arch - bias - wave - asym;
+                    leftPoints.push({x: lx, y: ly});
+                    
+                    // Right eyebrow (mirrored)
+                    const rx = 530 + t * 160;
+                    const rBias = p.outerBias * (1-t) + p.innerBias * t;
+                    const ry = 30 - p.baselineOffset - arch - rBias - wave + asym;
+                    rightPoints.push({x: rx, y: ry});
+                }
+                
+                // Build smooth bezier paths
+                function pointsToPath(pts) {
+                    if (pts.length < 2) return '';
+                    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+                    for (let i = 1; i < pts.length; i++) {
+                        d += ` L ${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
+                    }
+                    return d;
+                }
+                
+                leftPath.setAttribute('d', pointsToPath(leftPoints));
+                rightPath.setAttribute('d', pointsToPath(rightPoints));
+                
+                requestAnimationFrame(animate);
+            }
+            animate();
+        }
         
         function setZenState(state) {
             window.zenState = state;
@@ -1844,6 +2063,15 @@ async def dashboard(request: Request):
             if (danwaView) {
                 danwaView.setAttribute('data-state', state);
             }
+            
+            // Map state to emotion
+            const stateEmotions = {
+                idle: 'calm',
+                listening: 'curious',
+                thinking: 'focus',
+                speaking: 'joy'
+            };
+            setZenEmotion(stateEmotions[state] || 'calm');
         }
         
         function setZenMode(mode) {
@@ -1871,6 +2099,7 @@ async def dashboard(request: Request):
                     danwaView.style.display = 'flex';
                     setZenState('idle');
                     initDanwaWaveform();
+                    renderEyebrows(); // Start eyebrow animation
                 }
             }
         }
@@ -2047,6 +2276,24 @@ async def dashboard(request: Request):
             }
             animateMouth();
         }
+        
+        // Initialize on page load
+        (function initZen() {
+            // Start in kata (form) mode with DANWA view
+            const danwaView = document.getElementById('danwa-view');
+            const nodesView = document.getElementById('nodes-view');
+            
+            if (danwaView) {
+                // Initial setup for danwa view
+                danwaView.style.display = 'flex';
+                if (nodesView) nodesView.style.display = 'none';
+                
+                setZenState('idle');
+                setZenEmotion('calm');
+                initDanwaWaveform();
+                renderEyebrows();
+            }
+        })();
     </script>
 </body>
 </html>
