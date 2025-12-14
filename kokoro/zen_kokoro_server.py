@@ -423,27 +423,21 @@ async def dashboard(request: Request):
                             } catch(e) { console.log('Vision unavailable'); }
                         }
                         
-                        // Send to LLM
+                        // Send to LLM (use Ollama directly for reliability)
                         try {
-                            const resp = await fetch('http://localhost:3000/api/chat/completions', {
+                            const resp = await fetch('http://kokoro.local:11434/api/generate', {
                                 method: 'POST',
                                 headers: {
-                                    'Authorization': 'Bearer sk-671e852c73d743d5bbd695e1e796cd1b',
                                     'Content-Type': 'application/json'
                                 },
                                 body: JSON.stringify({
                                     model: 'llama3.1:8b',
-                                    messages: [{
-                                        role: 'system',
-                                        content: 'You are Zen, AI of the VOIGHT CLUSTER robot system. KOKORO=brain, ME=eyes, TE=hands. Be concise (1-2 sentences).' + visionContext
-                                    }, {
-                                        role: 'user', 
-                                        content: transcript
-                                    }]
+                                    prompt: 'You are Zen, AI of the VOIGHT CLUSTER robot system. KOKORO=brain, ME=eyes, TE=hands. Be concise (1-2 sentences).' + visionContext + '\\n\\nUser: ' + transcript + '\\n\\nZen:',
+                                    stream: false
                                 })
                             });
                             const data = await resp.json();
-                            const reply = data.choices[0].message.content;
+                            const reply = data.response || 'I could not generate a response.';
                             
                             if (typeof setZenState === 'function') setZenState('speaking');
                             if (btn && btn.id === 'danwa-talk-btn') {
