@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 from typing import Optional
 import logging
 import psutil
+import os
+import glob
 
 from te_arm_bridge import TeArmBridge, ArmState
 
@@ -56,6 +58,77 @@ def get_hardware_stats():
         }
     except:
         return {}
+
+def get_lidar_status() -> dict:
+    """
+    Best-effort LiDAR detection on TE.
+    We avoid hard-coding a model; instead we:
+    - Prefer /dev/serial/by-id entries with lidar-ish keywords
+    - Fall back to any ttyUSB/ttyACM port that is NOT the Arduino arm port
+    """
+    lidar_keywords = [
+        "lidar", "rplidar", "ydlidar", "slamtec", "s2", "a2", "a1", "x4", "ld",
+        "scan", "laser", "cp210", "silabs", "prolific", "pl2303"
+    ]
+
+    arduino_port = None
+    try:
+        # Prefer the actual connected port (if any), otherwise best-effort detect
+        if arm_bridge is not None and getattr(arm_bridge, "serial", None) is not None:
+            arduino_port = getattr(arm_bridge.serial, "port", None)
+        if not arduino_port:
+            arduino_port = TeArmBridge.find_arduino_port()
+    except Exception:
+        arduino_port = None
+
+    # 1) Prefer stable by-id symlinks
+    by_id_paths = sorted(glob.glob("/dev/serial/by-id/*"))
+    by_id_matches: list[dict] = []
+    for p in by_id_paths:
+        name = os.path.basename(p).lower()
+        if any(k in name for k in lidar_keywords):
+            by_id_matches.append(
+                {
+                    "by_id": p,
+                    "port": os.path.realpath(p),
+                    "match": "keyword",
+                    "name": os.path.basename(p),
+                }
+            )
+
+    # Filter out Arduino port if it matches
+    if arduino_port:
+        by_id_matches = [m for m in by_id_matches if m.get("port") != arduino_port]
+
+    if by_id_matches:
+        # If multiple, return the first (most deterministic)
+        m = by_id_matches[0]
+        return {
+            "connected": True,
+            "port": m["port"],
+            "by_id": m["by_id"],
+            "note": f"matched by-id keyword: {m.get('name','')}",
+        }
+
+    # 2) Fallback: scan ttyUSB/ttyACM and exclude Arduino port
+    candidates = sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
+    if arduino_port:
+        candidates = [c for c in candidates if c != arduino_port]
+
+    if candidates:
+        return {
+            "connected": True,
+            "port": candidates[0],
+            "by_id": None,
+            "note": "heuristic: first non-arduino serial port",
+            "candidates": candidates[:5],
+        }
+
+    return {
+        "connected": False,
+        "port": None,
+        "by_id": None,
+    }
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("zen_te_server")
@@ -160,6 +233,7 @@ async def status() -> dict:
     Node status endpoint for cluster monitoring.
     """
     arm_status = arm_bridge.state if arm_bridge else ArmState(joints=[90.0]*6)
+    lidar = get_lidar_status()
     
     return {
         "node": "te",
@@ -169,6 +243,7 @@ async def status() -> dict:
             "robot_arm": True,
             "gripper": True,
             "dof": 6,
+            "lidar": True,
         },
         "hardware": get_hardware_stats(),
         "arm": {
@@ -176,6 +251,7 @@ async def status() -> dict:
             "enabled": arm_status.enabled,
             "joints": arm_status.joints,
         },
+        "lidar": lidar,
         "version": "0.1.0",
     }
 

@@ -2050,6 +2050,23 @@ async def dashboard(request: Request):
                         </div>
                     </div>
                 </div>
+"""
+                # LiDAR status on TE (USB-connected)
+                if node.status.get("lidar") is not None:
+                    lidar_connected = bool(node.status.get("lidar", {}).get("connected", False))
+                    lidar_port = node.status.get("lidar", {}).get("port") or "—"
+                    lidar_class = "online" if lidar_connected else "offline"
+                    html += f"""
+                <div class="node-details" style="padding-top:0.5rem;">
+                    <div class="detail-row">
+                        <span class="detail-label">Lidar</span>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <div class="status-dot {lidar_class}" style="width:8px;height:8px;"></div>
+                            <span>{"Connected" if lidar_connected else "Disconnected"}</span>
+                            <span style="color: var(--text-secondary); font-size: 0.75rem; margin-left: 6px;">{lidar_port}</span>
+                        </div>
+                    </div>
+                </div>
                 <div class="node-details" style="padding-top:0.75rem;">
                     <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
 """
