@@ -14,6 +14,7 @@ import asyncio
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import httpx
 import requests
@@ -66,6 +67,11 @@ app = FastAPI(
     description="Orchestration node for the VOIGHT CLUSTER (心)",
     version="0.1.0",
 )
+
+# Serve static assets (images, etc.)
+_ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+_ASSETS_DIR.mkdir(exist_ok=True)
+app.mount("/assets", StaticFiles(directory=str(_ASSETS_DIR)), name="assets")
 
 # -----------------------------------------------------------------------------
 # TE servo mapping (UI joint index -> TE servo_id)
@@ -1573,6 +1579,25 @@ async def dashboard(request: Request):
             flex-direction: column;
             align-items: center;
             position: relative;
+        }
+        
+        /* Ghost robot background behind the face */
+        .zen-eyes-container::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 420px;
+            height: 380px;
+            background-image: url('/assets/2xl-robot.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            opacity: 0.08;
+            pointer-events: none;
+            z-index: -1;
+            filter: grayscale(100%) contrast(1.2);
         }
 
         /* BODY (身) - Anatomy/Skeleton model panel */
