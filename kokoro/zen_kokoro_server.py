@@ -1766,18 +1766,40 @@ async def dashboard(request: Request):
             position: absolute;
             top: -18px;
             left: 50%;
-            transform: translateX(-50%);
+            /* Emotion-driven animation uses CSS vars set by JS */
+            --brow-y: 0px;
+            --brow-rot: 0deg;
+            --brow-sx: 1;
+            --brow-glow: 1;
+            --brow-color: rgba(99, 102, 241, 0.85);
+            --brow-glow-color: rgba(99, 102, 241, 0.45);
+
+            transform: translateX(-50%) translateY(var(--brow-y)) rotate(var(--brow-rot)) scaleX(var(--brow-sx));
             width: 180px;
             height: 4px;
-            background: rgba(99, 102, 241, 0.85);
+            background: var(--brow-color);
             border-radius: 999px;
-            box-shadow: 0 0 10px rgba(99, 102, 241, 0.45);
+            box-shadow: 0 0 calc(10px * var(--brow-glow)) var(--brow-glow-color);
             z-index: 5;
             pointer-events: none;
             opacity: 0.9;
         }
-        .eye.left-eye .eye-brow { transform: translateX(-50%) rotate(-8deg); }
-        .eye.right-eye .eye-brow { transform: translateX(-50%) rotate(8deg); }
+
+        /* Base tilt so it still looks good even if JS is paused */
+        .eye.left-eye .eye-brow { --brow-rot: -8deg; }
+        .eye.right-eye .eye-brow { --brow-rot: 8deg; }
+
+        /* Emotion + state styling */
+        #danwa-view[data-emotion="calm"] .eye-brow { --brow-color: rgba(99, 102, 241, 0.75); --brow-glow-color: rgba(99, 102, 241, 0.35); }
+        #danwa-view[data-emotion="curious"] .eye-brow { --brow-color: rgba(99, 102, 241, 0.95); --brow-glow-color: rgba(99, 102, 241, 0.6); }
+        #danwa-view[data-emotion="focus"] .eye-brow { --brow-color: rgba(170, 180, 255, 0.9); --brow-glow-color: rgba(170, 180, 255, 0.5); }
+        #danwa-view[data-emotion="joy"] .eye-brow { --brow-color: rgba(200, 100, 120, 0.9); --brow-glow-color: rgba(200, 100, 120, 0.55); }
+        #danwa-view[data-emotion="concern"] .eye-brow { --brow-color: rgba(220, 170, 120, 0.85); --brow-glow-color: rgba(220, 170, 120, 0.5); }
+        #danwa-view[data-emotion="confused"] .eye-brow { --brow-color: rgba(180, 160, 255, 0.85); --brow-glow-color: rgba(180, 160, 255, 0.45); }
+        #danwa-view[data-emotion="alert"] .eye-brow { --brow-color: rgba(255, 120, 120, 0.95); --brow-glow-color: rgba(255, 120, 120, 0.6); }
+
+        #danwa-view[data-state="speaking"] .eye-brow { --brow-glow: 1.6; }
+        #danwa-view[data-state="listening"] .eye-brow { --brow-glow: 1.25; }
 
         /* The clipped "eye" viewport that contains the 200%-width stereo image */
         .eye-viewport {
@@ -3262,6 +3284,12 @@ async def dashboard(request: Request):
                 const emoji = emotionDisplay.querySelector('.zen-emotion-emoji');
                 if (emoji) emoji.textContent = emotionEmojis[emotion] || '😌';
             }
+
+            // Also expose emotion on the danwa view for CSS + eyebrow animation
+            const danwaView = document.getElementById('danwa-view');
+            if (danwaView) {
+                danwaView.setAttribute('data-emotion', emotion);
+            }
         }
         
         // Interpolate eyebrow parameters toward target
@@ -3324,11 +3352,11 @@ async def dashboard(request: Request):
             eyebrowsAnimating = true;
             
             function animate() {
-                const leftPath = document.getElementById('eyebrow-left');
-                const rightPath = document.getElementById('eyebrow-right');
                 const danwaView = document.getElementById('danwa-view');
+                const leftBrow = document.querySelector('.eye.left-eye .eye-brow');
+                const rightBrow = document.querySelector('.eye.right-eye .eye-brow');
                 
-                if (!leftPath || !rightPath) {
+                if (!leftBrow || !rightBrow) {
                     eyebrowsAnimating = false;
                     return;
                 }
@@ -3341,68 +3369,44 @@ async def dashboard(request: Request):
                 // Check reduced motion preference
                 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
                 if (reducedMotion) {
-                    leftPath.setAttribute('d', 'M 50 35 Q 130 22 210 35');
-                    rightPath.setAttribute('d', 'M 490 35 Q 570 22 650 35');
+                    // Minimal static expression
+                    leftBrow.style.setProperty('--brow-y', '0px');
+                    rightBrow.style.setProperty('--brow-y', '0px');
                     return;
                 }
                 
                 updateEyebrowParams();
                 const p = window.eyebrowParams;
-                
-                // Left eyebrow: 50-210 (outer to inner toward center)
-                // Right eyebrow: 490-650 (inner to outer from center)
-                
-                const baseY = 35;
-                const leftPoints = [];
-                const rightPoints = [];
-                const segments = 24;
-                
-                for (let i = 0; i <= segments; i++) {
-                    const t = i / segments;
-                    
-                    // Left eyebrow
-                    const lx = 50 + t * 160;
-                    // Wave term scales with emotion amplitude (kept subtle vs arch)
-                    const wave = Math.sin(t * Math.PI * 2 + p.phase) * (1.6 + (p.amplitude * 0.12));
-                    // Arch is the main expressive shape
-                    const arch = Math.sin(t * Math.PI) * (p.amplitude * 1.18);
-                    // inner = right side of left brow (t=1), outer = left side (t=0)
-                    const bias = (p.outerBias * (1-t) + p.innerBias * t) * 1.25;
-                    const asym = (1 - p.symmetry) * 4 * (t - 0.5);
-                    const ly = baseY - p.baselineOffset - arch - bias + wave + asym;
-                    leftPoints.push({x: lx, y: Math.max(3, Math.min(48, ly))});
-                    
-                    // Right eyebrow (mirrored: inner at t=0, outer at t=1)
-                    const rx = 490 + t * 160;
-                    const rBias = (p.innerBias * (1-t) + p.outerBias * t) * 1.25;
-                    const rAsym = (1 - p.symmetry) * 4 * (0.5 - t);
-                    const ry = baseY - p.baselineOffset - arch - rBias + wave + rAsym;
-                    rightPoints.push({x: rx, y: Math.max(3, Math.min(48, ry))});
-                }
-                
-                // Build smooth quadratic bezier path
-                function pointsToSmoothPath(pts) {
-                    if (pts.length < 2) return '';
-                    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-                    
-                    // Use quadratic curves for smoothness
-                    for (let i = 1; i < pts.length - 1; i++) {
-                        const cp = pts[i];
-                        const next = pts[i + 1];
-                        const midX = (cp.x + next.x) / 2;
-                        const midY = (cp.y + next.y) / 2;
-                        d += ` Q ${cp.x.toFixed(1)} ${cp.y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)}`;
-                    }
-                    
-                    // Final point
-                    const last = pts[pts.length - 1];
-                    d += ` L ${last.x.toFixed(1)} ${last.y.toFixed(1)}`;
-                    
-                    return d;
-                }
-                
-                leftPath.setAttribute('d', pointsToSmoothPath(leftPoints));
-                rightPath.setAttribute('d', pointsToSmoothPath(rightPoints));
+
+                const state = (danwaView && danwaView.getAttribute('data-state')) || window.zenState || 'idle';
+
+                // Map eyebrowParams → simple line transforms
+                // baselineOffset > 0 means "raised" in old SVG; for us negative y moves up.
+                const baseLift = -(p.baselineOffset * 0.8) - (p.amplitude * 0.18);
+                const wobble = Math.sin(p.phase * 2.2) * (0.6 + p.amplitude * 0.03);
+
+                // Rotation derived from inner/outer bias. Apply opposite sign to keep symmetry.
+                const rotBase = (p.outerBias - p.innerBias) * 0.55;
+                const rotWobble = Math.sin(p.phase * 1.6) * (0.6 + (1 - p.symmetry) * 1.8);
+
+                // Slight widen/narrow
+                const sx = 1 + (p.amplitude * 0.01);
+
+                // Speaking/listening adds energy
+                const stateLift = state === 'speaking' ? -4 : (state === 'listening' ? -2 : 0);
+
+                const leftY = (baseLift + wobble + stateLift).toFixed(2) + 'px';
+                const rightY = (baseLift - wobble + stateLift).toFixed(2) + 'px';
+
+                leftBrow.style.setProperty('--brow-y', leftY);
+                rightBrow.style.setProperty('--brow-y', rightY);
+
+                // Add extra rotation on top of the base tilt already in CSS
+                leftBrow.style.setProperty('--brow-rot', (rotBase + rotWobble - 8).toFixed(2) + 'deg');
+                rightBrow.style.setProperty('--brow-rot', (-rotBase + rotWobble + 8).toFixed(2) + 'deg');
+
+                leftBrow.style.setProperty('--brow-sx', sx.toFixed(3));
+                rightBrow.style.setProperty('--brow-sx', sx.toFixed(3));
                 
                 requestAnimationFrame(animate);
             }
