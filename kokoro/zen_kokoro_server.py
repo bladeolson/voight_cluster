@@ -1908,7 +1908,7 @@ async def dashboard(request: Request):
             gap: 35px;
             width: 100%;
             max-width: 700px;
-            margin-top: 20px;
+            margin-top: 170px; /* moved down 150px */
         }
         
         .mouth-container {
