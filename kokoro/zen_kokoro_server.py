@@ -272,6 +272,45 @@ async def download_certificate():
     return {"error": "Certificate not found"}
 
 
+@app.get("/proxy/me/stream")
+async def proxy_me_stream():
+    """Proxy ME camera stream through KOKORO for HTTPS access."""
+    import httpx
+    from fastapi.responses import StreamingResponse
+    
+    async def stream_generator():
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("GET", "http://me.local:8028/stream") as response:
+                async for chunk in response.aiter_bytes():
+                    yield chunk
+    
+    return StreamingResponse(
+        stream_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
+
+@app.get("/proxy/me/snapshot")
+async def proxy_me_snapshot():
+    """Proxy ME camera snapshot through KOKORO."""
+    import httpx
+    from fastapi.responses import Response
+    
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get("http://me.local:8028/snapshot")
+        return Response(content=response.content, media_type="image/jpeg")
+
+
+@app.get("/proxy/me/analyze")
+async def proxy_me_analyze(prompt: str = "Describe what you see"):
+    """Proxy ME vision analysis through KOKORO."""
+    import httpx
+    
+    async with httpx.AsyncClient(timeout=120) as client:
+        response = await client.get(f"http://me.local:8028/analyze?prompt={prompt}")
+        return response.json()
+
+
 @app.get("/status")
 def status():
     """
@@ -433,7 +472,7 @@ async def dashboard(request: Request):
                         if (isVision) {
                             if (status) status.textContent = '👁️ Looking';
                             try {
-                                const vr = await fetch('http://me.local:8028/analyze?prompt=Describe+what+you+see');
+                                const vr = await fetch('/proxy/me/analyze?prompt=Describe+what+you+see');
                                 const vd = await vr.json();
                                 if (vd.description) visionContext = '\\n[VISION]: ' + vd.description;
                             } catch(e) { console.log('Vision unavailable'); }
@@ -1373,10 +1412,10 @@ async def dashboard(request: Request):
                 <!-- Eyes - Camera Feed -->
                 <div class="zen-eyes">
                     <div class="eye left-eye">
-                        <img src="http://me.local:8028/stream" alt="Left Eye" onerror="this.src=''; this.alt='👁️'">
+                        <img src="/proxy/me/stream" alt="Left Eye" onerror="this.src=''; this.alt='👁️'">
                     </div>
                     <div class="eye right-eye">
-                        <img src="http://me.local:8028/stream" alt="Right Eye" onerror="this.src=''; this.alt='👁️'">
+                        <img src="/proxy/me/stream" alt="Right Eye" onerror="this.src=''; this.alt='👁️'">
                     </div>
                 </div>
             </div>
