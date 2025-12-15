@@ -2632,36 +2632,51 @@ async def dashboard(request: Request):
                         <summary style="cursor:pointer; color: rgba(235,238,255,0.60); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase;">
                           Mapping (calibrate)
                         </summary>
+                        
+                        <!-- STEP 1: Direct servo_id test to identify physical wiring -->
+                        <div style="margin-top:10px; padding:10px; background:rgba(0,0,0,0.2); border-radius:8px; border:1px solid rgba(99,102,241,0.3);">
+                          <div style="font-size:0.7rem; color:rgba(235,238,255,0.7); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.1em;">
+                            Step 1: Test raw servo_id (observe which joint moves)
+                          </div>
+                          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                            <button class="te-inline-btn" id="te-raw-test-0" type="button" style="min-width:50px;">ID 0</button>
+                            <button class="te-inline-btn" id="te-raw-test-1" type="button" style="min-width:50px;">ID 1</button>
+                            <button class="te-inline-btn" id="te-raw-test-2" type="button" style="min-width:50px;">ID 2</button>
+                            <button class="te-inline-btn" id="te-raw-test-3" type="button" style="min-width:50px;">ID 3</button>
+                            <button class="te-inline-btn" id="te-raw-test-4" type="button" style="min-width:50px;">ID 4</button>
+                            <button class="te-inline-btn" id="te-raw-test-5" type="button" style="min-width:50px;">ID 5</button>
+                          </div>
+                          <div id="te-raw-result" style="margin-top:8px; font-size:0.75rem; color:rgba(235,238,255,0.6);"></div>
+                        </div>
+                        
+                        <!-- STEP 2: Set the mapping based on what you observed -->
+                        <div style="margin-top:12px; font-size:0.7rem; color:rgba(235,238,255,0.7); text-transform:uppercase; letter-spacing:0.1em;">
+                          Step 2: Assign each joint to the servo_id that moved it
+                        </div>
                         <div style="margin-top:8px; display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
                           <div class="te-inline-servo">
                             <div class="te-inline-head"><span class="te-inline-name">Base → servo_id</span><span class="te-inline-val" id="te-map-val-0">0</span></div>
                             <select id="te-map-0" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
-                            <button class="te-inline-btn" id="te-map-test-0" type="button" style="margin-top:8px;">Identify</button>
                           </div>
                           <div class="te-inline-servo">
                             <div class="te-inline-head"><span class="te-inline-name">Shoulder → servo_id</span><span class="te-inline-val" id="te-map-val-1">1</span></div>
                             <select id="te-map-1" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
-                            <button class="te-inline-btn" id="te-map-test-1" type="button" style="margin-top:8px;">Identify</button>
                           </div>
                           <div class="te-inline-servo">
                             <div class="te-inline-head"><span class="te-inline-name">Elbow → servo_id</span><span class="te-inline-val" id="te-map-val-2">2</span></div>
                             <select id="te-map-2" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
-                            <button class="te-inline-btn" id="te-map-test-2" type="button" style="margin-top:8px;">Identify</button>
                           </div>
                           <div class="te-inline-servo">
                             <div class="te-inline-head"><span class="te-inline-name">Wrist Bend → servo_id</span><span class="te-inline-val" id="te-map-val-3">3</span></div>
                             <select id="te-map-3" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
-                            <button class="te-inline-btn" id="te-map-test-3" type="button" style="margin-top:8px;">Identify</button>
                           </div>
                           <div class="te-inline-servo">
                             <div class="te-inline-head"><span class="te-inline-name">Wrist Swivel → servo_id</span><span class="te-inline-val" id="te-map-val-4">4</span></div>
                             <select id="te-map-4" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
-                            <button class="te-inline-btn" id="te-map-test-4" type="button" style="margin-top:8px;">Identify</button>
                           </div>
                           <div class="te-inline-servo">
                             <div class="te-inline-head"><span class="te-inline-name">Grip → servo_id</span><span class="te-inline-val" id="te-map-val-5">5</span></div>
                             <select id="te-map-5" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
-                            <button class="te-inline-btn" id="te-map-test-5" type="button" style="margin-top:8px;">Identify</button>
                           </div>
                         </div>
                         <div class="te-inline-actions" style="margin-top:10px;">
@@ -2867,41 +2882,63 @@ async def dashboard(request: Request):
                 return await r.json();
             }
 
+            let mappingUIInited = false;
+            
+            async function wiggleServo(sid, resultEl) {
+                // Wiggle a raw servo_id to identify which physical joint it controls
+                if (resultEl) resultEl.textContent = 'Testing servo_id ' + sid + '...';
+                try {
+                    await post('/proxy/te/move', { job_id: 'raw-' + Date.now(), commands: [{ servo_id: sid, angle: 110, speed: 50 }] });
+                    await new Promise(r => setTimeout(r, 500));
+                    await post('/proxy/te/move', { job_id: 'raw-' + Date.now(), commands: [{ servo_id: sid, angle: 90, speed: 50 }] });
+                    if (resultEl) resultEl.textContent = 'servo_id ' + sid + ' wiggled. Which joint moved?';
+                } catch (e) {
+                    if (resultEl) resultEl.textContent = 'Error: ' + e;
+                }
+            }
+            
             function populateMappingUI() {
+                const resultEl = document.getElementById('te-raw-result');
+                
+                // Setup raw servo_id test buttons (only once)
+                if (!mappingUIInited) {
+                    for (let sid = 0; sid < 6; sid++) {
+                        const btn = document.getElementById('te-raw-test-' + sid);
+                        if (btn) {
+                            btn.addEventListener('click', async () => {
+                                btn.disabled = true;
+                                await wiggleServo(sid, resultEl);
+                                btn.disabled = false;
+                            });
+                        }
+                    }
+                }
+                
+                // Setup mapping dropdowns
                 for (let i = 0; i < 6; i++) {
                     const sel = document.getElementById('te-map-' + i);
                     const val = document.getElementById('te-map-val-' + i);
-                    const testBtn = document.getElementById('te-map-test-' + i);
-                    if (!sel || !val || !testBtn) continue;
-                    sel.innerHTML = '';
-                    for (let s = 0; s < 6; s++) {
-                        const opt = document.createElement('option');
-                        opt.value = String(s);
-                        opt.textContent = String(s);
-                        sel.appendChild(opt);
+                    if (!sel || !val) continue;
+                    
+                    // Only populate options once
+                    if (sel.options.length === 0) {
+                        for (let s = 0; s < 6; s++) {
+                            const opt = document.createElement('option');
+                            opt.value = String(s);
+                            opt.textContent = String(s);
+                            sel.appendChild(opt);
+                        }
+                        sel.addEventListener('change', () => {
+                            val.textContent = sel.value;
+                        });
                     }
+                    
+                    // Always update value from current teServoMap
                     sel.value = String(teServoMap[i] ?? i);
                     val.textContent = sel.value;
-                    sel.addEventListener('change', () => {
-                        val.textContent = sel.value;
-                    });
-                    testBtn.addEventListener('click', async () => {
-                        const sid = parseInt(sel.value, 10);
-                        if (!Number.isFinite(sid)) return;
-                        testBtn.disabled = true;
-                        try {
-                            // "Wiggle" the selected servo_id a bit to identify motion.
-                            const slider = document.getElementById('te-inline-slider-' + i);
-                            const base = slider ? parseInt(slider.value, 10) : 90;
-                            const a1 = Math.max(0, Math.min(180, (Number.isFinite(base) ? base : 90) + 12));
-                            await post('/proxy/te/move', { job_id: 'identify-' + Date.now(), commands: [{ servo_id: sid, angle: a1, speed: 50 }] });
-                            await new Promise(r => setTimeout(r, 450));
-                            await post('/proxy/te/move', { job_id: 'identify-' + Date.now(), commands: [{ servo_id: sid, angle: (Number.isFinite(base) ? base : 90), speed: 50 }] });
-                        } finally {
-                            testBtn.disabled = false;
-                        }
-                    });
                 }
+                
+                mappingUIInited = true;
             }
 
             populateMappingUI();
