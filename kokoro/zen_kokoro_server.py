@@ -1585,11 +1585,11 @@ async def dashboard(request: Request):
         .zen-eyes-container::before {
             content: '';
             position: fixed;
-            top: -1100px;
+            top: -1000px;
             left: 50%;
             transform: translateX(-50%);
-            width: 7000px;
-            height: 6300px;
+            width: 5600px;
+            height: 5040px;
             background-image: url('/assets/Just_2XLLINES.png');
             background-size: contain;
             background-repeat: no-repeat;
