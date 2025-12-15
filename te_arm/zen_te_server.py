@@ -110,6 +110,25 @@ def get_lidar_status() -> dict:
             "note": f"matched by-id keyword: {m.get('name','')}",
         }
 
+    # Special case: many RPLidar units enumerate as generic USB-serial (FTDI/CP210x/etc.)
+    # If the arm is NOT connected, and we only see one serial device by-id, treat it as LiDAR.
+    try:
+        arm_connected = bool(arm_bridge and getattr(arm_bridge, "state", None) and arm_bridge.state.connected)
+    except Exception:
+        arm_connected = False
+
+    if (not arm_connected) and len(by_id_paths) == 1:
+        p = by_id_paths[0]
+        port = os.path.realpath(p)
+        # If the only device isn't explicitly known to be the Arduino port, assume it's the LiDAR.
+        if not arduino_port or port != arduino_port:
+            return {
+                "connected": True,
+                "port": port,
+                "by_id": p,
+                "note": "single serial device present while arm disconnected; assuming LiDAR",
+            }
+
     # 2) Fallback: scan ttyUSB/ttyACM and exclude Arduino port
     candidates = sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
     if arduino_port:
