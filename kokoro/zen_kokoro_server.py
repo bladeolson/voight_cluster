@@ -722,6 +722,33 @@ async def dashboard(request: Request):
         window.zenListening = false;
         window.zenStream = null;
         window.zenRecognition = null;
+
+        // Zen Stereo Eye Visualizer (side-by-side stereo MJPEG split)
+        // ipdMeters is exposed per request; we map it to a small pixel shift tweak for aligning stereo halves.
+        window.zenStereo = {
+            ipdMeters: 0.064,
+            shiftPx: 0,  // positive shifts both eyes right; fine-tune if your stereo feed is slightly off-center
+        };
+
+        window.applyZenStereo = function() {
+            const leftImg = document.getElementById('left-eye-img');
+            const rightImg = document.getElementById('right-eye-img');
+            if (!leftImg || !rightImg) return;
+
+            const leftLabel = leftImg.parentElement ? leftImg.parentElement.querySelector('.eye-label') : null;
+            const rightLabel = rightImg.parentElement ? rightImg.parentElement.querySelector('.eye-label') : null;
+
+            // Keep this intentionally simple: we split by object-position (left/right) and optionally nudge via CSS var.
+            const shift = (window.zenStereo && Number.isFinite(window.zenStereo.shiftPx)) ? window.zenStereo.shiftPx : 0;
+            leftImg.style.setProperty('--stereo-shift', `${shift}px`);
+            rightImg.style.setProperty('--stereo-shift', `${shift}px`);
+
+            // Debug: show which pane + current shift value
+            if (leftLabel) leftLabel.textContent = `L`;
+            if (rightLabel) rightLabel.textContent = `R`;
+            if (leftLabel) leftLabel.title = `Left eye (shiftPx=${shift})`;
+            if (rightLabel) rightLabel.title = `Right eye (shiftPx=${shift})`;
+        };
         
         window.toggleZenVoice = async function() {
             // Support both NODES and DANWA views - check which is visible
@@ -1570,10 +1597,39 @@ async def dashboard(request: Request):
         }
         
         .eye img {
-            width: 100%;
+            width: 200%;          /* stereo split: show half-frame per eye */
             height: 100%;
             object-fit: cover;
             opacity: 0.9;
+            transform: translateX(var(--stereo-shift, 0px));
+        }
+
+        /* Stereo crop: left eye shows left half, right eye shows right half */
+        .eye.left-eye img {
+            object-position: left center;
+        }
+        .eye.right-eye img {
+            object-position: right center;
+        }
+
+        /* Debug overlay labels */
+        .eye-label {
+            position: absolute;
+            top: 10px;
+            left: 12px;
+            z-index: 3;
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: rgba(235,238,255,0.92);
+            background: rgba(0,0,0,0.35);
+            border: 1px solid rgba(255,255,255,0.10);
+            backdrop-filter: blur(6px);
         }
         
         /* Reduced motion */
@@ -1893,6 +1949,7 @@ async def dashboard(request: Request):
                 <!-- Eyes - Camera Feed -->
                 <div class="zen-eyes">
                     <div class="eye left-eye">
+                        <div class="eye-label" title="Left eye">L</div>
                         <img id="left-eye-img" src="/proxy/me/stream" alt="Left Eye">
                     </div>
                     
@@ -1902,6 +1959,7 @@ async def dashboard(request: Request):
                     </div>
                     
                     <div class="eye right-eye">
+                        <div class="eye-label" title="Right eye">R</div>
                         <img id="right-eye-img" src="/proxy/me/stream" alt="Right Eye">
                     </div>
                 </div>
@@ -2755,6 +2813,7 @@ async def dashboard(request: Request):
                     setZenState('idle');
                     initDanwaWaveform();
                     renderEyebrows(); // Start eyebrow animation
+                    applyZenStereo(); // Ensure L/R stereo split is active
                 }
             }
 
@@ -2970,6 +3029,7 @@ async def dashboard(request: Request):
                 setZenEmotion('calm');
                 initDanwaWaveform();
                 renderEyebrows();
+                applyZenStereo();
             }
         })();
     </script>
