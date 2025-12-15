@@ -2838,6 +2838,40 @@ async def dashboard(request: Request):
             }
         })();
 
+        // Helper for POST requests
+        async function tePost(url, body) {
+            const r = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: body ? JSON.stringify(body) : null,
+            });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return await r.json();
+        }
+
+        // Setup raw servo test buttons immediately on page load
+        (function setupRawTestButtons() {
+            const resultEl = document.getElementById('te-raw-result');
+            for (let sid = 0; sid < 6; sid++) {
+                const btn = document.getElementById('te-raw-test-' + sid);
+                if (btn) {
+                    btn.addEventListener('click', async () => {
+                        btn.disabled = true;
+                        if (resultEl) resultEl.textContent = 'Testing servo_id ' + sid + '...';
+                        try {
+                            await tePost('/proxy/te/move', { job_id: 'raw-' + Date.now(), commands: [{ servo_id: sid, angle: 110, speed: 50 }] });
+                            await new Promise(r => setTimeout(r, 500));
+                            await tePost('/proxy/te/move', { job_id: 'raw-' + Date.now(), commands: [{ servo_id: sid, angle: 90, speed: 50 }] });
+                            if (resultEl) resultEl.textContent = 'servo_id ' + sid + ' wiggled. Which joint moved?';
+                        } catch (e) {
+                            if (resultEl) resultEl.textContent = 'Error: ' + e;
+                        }
+                        btn.disabled = false;
+                    });
+                }
+            }
+        })();
+
         function initTeInlineControls() {
             if (teInline.inited) return;
             const moveBtn = document.getElementById('te-inline-move');
@@ -2884,37 +2918,8 @@ async def dashboard(request: Request):
 
             let mappingUIInited = false;
             
-            async function wiggleServo(sid, resultEl) {
-                // Wiggle a raw servo_id to identify which physical joint it controls
-                if (resultEl) resultEl.textContent = 'Testing servo_id ' + sid + '...';
-                try {
-                    await post('/proxy/te/move', { job_id: 'raw-' + Date.now(), commands: [{ servo_id: sid, angle: 110, speed: 50 }] });
-                    await new Promise(r => setTimeout(r, 500));
-                    await post('/proxy/te/move', { job_id: 'raw-' + Date.now(), commands: [{ servo_id: sid, angle: 90, speed: 50 }] });
-                    if (resultEl) resultEl.textContent = 'servo_id ' + sid + ' wiggled. Which joint moved?';
-                } catch (e) {
-                    if (resultEl) resultEl.textContent = 'Error: ' + e;
-                }
-            }
-            
             function populateMappingUI() {
-                const resultEl = document.getElementById('te-raw-result');
-                
-                // Setup raw servo_id test buttons (only once)
-                if (!mappingUIInited) {
-                    for (let sid = 0; sid < 6; sid++) {
-                        const btn = document.getElementById('te-raw-test-' + sid);
-                        if (btn) {
-                            btn.addEventListener('click', async () => {
-                                btn.disabled = true;
-                                await wiggleServo(sid, resultEl);
-                                btn.disabled = false;
-                            });
-                        }
-                    }
-                }
-                
-                // Setup mapping dropdowns
+                // Setup mapping dropdowns (raw test buttons are set up on page load)
                 for (let i = 0; i < 6; i++) {
                     const sel = document.getElementById('te-map-' + i);
                     const val = document.getElementById('te-map-val-' + i);
