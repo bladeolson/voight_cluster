@@ -1729,9 +1729,13 @@ async def dashboard(request: Request):
         }
         
         .zen-emotion-indicator {
+            /* Tunable emoji placement (to align with the head circle) */
+            --zen-emoji-x: 0px;     /* +right, -left */
+            --zen-emoji-y: -360px;  /* +down, -up */
+
             position: absolute;
-            top: -320px;
-            left: 50%;
+            top: var(--zen-emoji-y);
+            left: calc(50% + var(--zen-emoji-x));
             transform: translateX(-50%);
             z-index: 20;
             font-size: 2.5rem;
