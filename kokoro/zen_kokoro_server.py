@@ -272,6 +272,200 @@ async def download_certificate():
     return {"error": "Certificate not found"}
 
 
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_page():
+    """Setup instructions for all platforms."""
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zen Setup - VOIGHT CLUSTER</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0a12 0%, #1a1a2e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { 
+            text-align: center; 
+            color: #6366f1; 
+            margin-bottom: 10px;
+            font-size: 2rem;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+        }
+        .platform {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(99, 102, 241, 0.2);
+        }
+        .platform h2 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #f1f1f1;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+        }
+        .platform h2 .icon { font-size: 1.5rem; }
+        ol { padding-left: 20px; }
+        li { margin-bottom: 10px; line-height: 1.6; }
+        code {
+            background: rgba(99, 102, 241, 0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'SF Mono', Monaco, monospace;
+        }
+        .url-box {
+            background: #1a1a2e;
+            border: 1px solid #6366f1;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            text-align: center;
+        }
+        .url-box a {
+            color: #6366f1;
+            font-size: 1.1rem;
+            text-decoration: none;
+        }
+        .url-box a:hover { text-decoration: underline; }
+        .download-btn {
+            display: inline-block;
+            background: #6366f1;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            margin: 10px 0;
+            font-weight: 500;
+        }
+        .download-btn:hover { background: #5558e3; }
+        .note {
+            background: rgba(230, 57, 70, 0.1);
+            border-left: 3px solid #e63946;
+            padding: 10px 15px;
+            margin: 15px 0;
+            font-size: 0.9rem;
+        }
+        .success {
+            background: rgba(34, 197, 94, 0.1);
+            border-left: 3px solid #22c55e;
+            padding: 10px 15px;
+            margin: 15px 0;
+        }
+        .quick-test {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⟁ Zen Setup</h1>
+        <p class="subtitle">Enable voice & camera access on your device</p>
+        
+        <div class="url-box">
+            <strong>Dashboard URL:</strong><br>
+            <a href="/dashboard">https://kokoro.local:8025/dashboard</a><br>
+            <small style="color:#888">or https://10.0.0.205:8025/dashboard</small>
+        </div>
+
+        <div class="platform">
+            <h2><span class="icon">🍎</span> iPhone / iPad</h2>
+            <ol>
+                <li>Open <strong>Safari</strong> (not Chrome) and tap: <a href="/cert" class="download-btn">Download Certificate</a></li>
+                <li>Tap <strong>Allow</strong> when prompted to download the profile</li>
+                <li>Open <strong>Settings</strong> → tap <strong>Profile Downloaded</strong> (near top)</li>
+                <li>Tap <strong>Install</strong> → enter passcode → <strong>Install</strong> again</li>
+                <li>Go to <strong>Settings → General → About → Certificate Trust Settings</strong></li>
+                <li>Toggle ON <strong>"Zen KOKORO"</strong> → tap <strong>Continue</strong></li>
+                <li>Open Safari → go to the dashboard URL above</li>
+            </ol>
+            <div class="success">✓ Microphone and camera will now work!</div>
+        </div>
+
+        <div class="platform">
+            <h2><span class="icon">🤖</span> Android</h2>
+            <ol>
+                <li>Tap to download: <a href="/cert" class="download-btn">Download Certificate</a></li>
+                <li>Open <strong>Settings → Security → Encryption & credentials</strong></li>
+                <li>Tap <strong>Install a certificate → CA certificate</strong></li>
+                <li>Select the downloaded <code>kokoro-cert.pem</code> file</li>
+                <li>Name it "Zen KOKORO" and tap OK</li>
+                <li>Open Chrome → go to the dashboard URL</li>
+            </ol>
+            <div class="note">On some Android versions: Settings → Biometrics & Security → Other security settings → Install from storage</div>
+        </div>
+
+        <div class="platform">
+            <h2><span class="icon">🍎</span> Mac</h2>
+            <ol>
+                <li>Download: <a href="/cert" class="download-btn">Download Certificate</a></li>
+                <li>Double-click <code>kokoro-cert.pem</code> to open Keychain Access</li>
+                <li>Find "Zen KOKORO" in the list, double-click it</li>
+                <li>Expand <strong>Trust</strong> → set "When using this certificate" to <strong>Always Trust</strong></li>
+                <li>Close and enter your password</li>
+                <li>Restart your browser, then visit the dashboard</li>
+            </ol>
+            <div class="success">✓ Works in Safari, Chrome, Firefox, and all browsers!</div>
+        </div>
+
+        <div class="platform">
+            <h2><span class="icon">🪟</span> Windows</h2>
+            <ol>
+                <li>Download: <a href="/cert" class="download-btn">Download Certificate</a></li>
+                <li>Double-click <code>kokoro-cert.pem</code></li>
+                <li>Click <strong>Install Certificate</strong></li>
+                <li>Select <strong>Local Machine</strong> → Next</li>
+                <li>Select <strong>Place all certificates in the following store</strong></li>
+                <li>Click Browse → select <strong>Trusted Root Certification Authorities</strong></li>
+                <li>Click Next → Finish → Yes to confirm</li>
+                <li>Restart your browser</li>
+            </ol>
+        </div>
+
+        <div class="platform">
+            <h2><span class="icon">🐧</span> Linux</h2>
+            <ol>
+                <li>Download and install:
+                    <pre style="background:#111;padding:10px;border-radius:4px;margin:10px 0;overflow-x:auto"><code>wget https://kokoro.local:8025/cert -O kokoro-cert.pem --no-check-certificate
+sudo cp kokoro-cert.pem /usr/local/share/ca-certificates/kokoro-cert.crt
+sudo update-ca-certificates</code></pre>
+                </li>
+                <li>Restart your browser</li>
+            </ol>
+            <div class="note">For Chrome only: Go to chrome://settings/certificates → Authorities → Import</div>
+        </div>
+
+        <div class="quick-test">
+            <h3 style="margin-bottom:15px">Quick Access (Accept Warning)</h3>
+            <p style="color:#888;margin-bottom:15px">Don't want to install the certificate? Just accept the browser warning:</p>
+            <a href="/dashboard" class="download-btn" style="background:#22c55e">→ Go to Dashboard</a>
+            <p style="color:#666;font-size:0.85rem;margin-top:10px">
+                Click "Advanced" → "Proceed to kokoro.local"<br>
+                (Microphone may not work on mobile without installing cert)
+            </p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+
 @app.get("/proxy/me/stream")
 async def proxy_me_stream():
     """Proxy ME camera stream through KOKORO for HTTPS access."""
