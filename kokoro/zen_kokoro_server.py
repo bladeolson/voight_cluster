@@ -1585,7 +1585,7 @@ async def dashboard(request: Request):
         .zen-eyes-container::before {
             content: '';
             position: fixed;
-            top: -920px;
+            top: -870px;
             left: 50%;
             transform: translateX(-50%);
             width: 5600px;
@@ -1683,16 +1683,19 @@ async def dashboard(request: Request):
         .zen-eyebrows-container {
             display: flex;
             justify-content: center;
-            gap: 650px;
+            gap: 500px;
             width: 100%;
+            min-width: 1200px;
             margin-bottom: -10px;
             position: relative;
             z-index: 10;
+            overflow: visible;
         }
         
         .eyebrow-svg {
-            width: 180px;
+            width: 200px;
             height: 50px;
+            flex-shrink: 0;
         }
         
         .eyebrow {
