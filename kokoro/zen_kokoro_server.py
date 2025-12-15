@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 import httpx
+import requests
 import psutil
 
 
@@ -467,19 +468,19 @@ sudo update-ca-certificates</code></pre>
 
 
 @app.get("/proxy/me/stream")
-async def proxy_me_stream():
+def proxy_me_stream():
     """Proxy ME camera stream through KOKORO for HTTPS access."""
-    import httpx
+    import requests
     from fastapi.responses import StreamingResponse
     
-    async def stream_generator():
+    def stream_generator():
         try:
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream("GET", "http://me.local:8028/stream") as response:
-                    async for chunk in response.aiter_bytes():
+            with requests.get("http://me.local:8028/stream", stream=True, timeout=30) as r:
+                for chunk in r.iter_content(chunk_size=4096):
+                    if chunk:
                         yield chunk
         except Exception as e:
-            print(f"Stream error: {e}")
+            print(f"Stream proxy error: {e}")
     
     return StreamingResponse(
         stream_generator(),
