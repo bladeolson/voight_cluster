@@ -1584,16 +1584,16 @@ async def dashboard(request: Request):
         /* Ghost robot background behind the face - eyes aligned */
         .zen-eyes-container::before {
             content: '';
-            position: absolute;
-            top: 10%;
+            position: fixed;
+            top: 0;
             left: 50%;
-            transform: translate(-50%, -50%);
+            transform: translateX(-50%);
             width: 7000px;
             height: 6300px;
             background-image: url('/assets/2-XL.jpg');
             background-size: contain;
             background-repeat: no-repeat;
-            background-position: center;
+            background-position: top center;
             opacity: 0.25;
             pointer-events: none;
             z-index: -1;
