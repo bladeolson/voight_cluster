@@ -256,6 +256,22 @@ async def root():
     return RedirectResponse(url="/dashboard")
 
 
+@app.get("/cert")
+async def download_certificate():
+    """Download SSL certificate for installation on mobile devices."""
+    import os
+    from fastapi.responses import FileResponse
+    
+    cert_path = os.path.join(os.path.dirname(__file__), "ssl", "cert.pem")
+    if os.path.exists(cert_path):
+        return FileResponse(
+            cert_path,
+            media_type="application/x-pem-file",
+            filename="kokoro-cert.pem"
+        )
+    return {"error": "Certificate not found"}
+
+
 @app.get("/status")
 def status():
     """
