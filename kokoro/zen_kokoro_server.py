@@ -1336,6 +1336,37 @@ async def dashboard(request: Request):
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
             color: rgba(235,238,255,0.8);
         }
+        .asset-status {
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .asset-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.10);
+            background: rgba(0,0,0,0.25);
+            color: rgba(235,238,255,0.75);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+        .asset-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(230,57,70,0.85); /* default red */
+            box-shadow: 0 0 14px rgba(230,57,70,0.18);
+        }
+        .asset-pill.ok .asset-dot {
+            background: rgba(34,197,94,0.85);
+            box-shadow: 0 0 14px rgba(34,197,94,0.18);
+        }
         
         /* Zen Eyebrows - Wave-based emotion */
         .zen-eyebrows {
@@ -1753,7 +1784,10 @@ async def dashboard(request: Request):
                             style="width:100%; height:520px; background: rgba(0,0,0,0.35); border-radius: 14px;"
                         ></model-viewer>
                         <div class="zen-body-hint">
-                            GLB: <code>te_arm/AnatomyGeometry-Full-GLB.glb</code> • iOS AR: <code>te_arm/Skeleton.usdz</code>
+                            <div class="asset-status">
+                                <span class="asset-pill ok" id="asset-glb"><span class="asset-dot"></span>GLB</span>
+                                <span class="asset-pill ok" id="asset-usdz"><span class="asset-dot"></span>iOS AR</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2622,6 +2656,29 @@ async def dashboard(request: Request):
                     initDanwaWaveform();
                     renderEyebrows(); // Start eyebrow animation
                 }
+            }
+
+            // BODY (身) - asset indicators
+            if (mode === 'mi') {
+                const glbPill = document.getElementById('asset-glb');
+                const usdzPill = document.getElementById('asset-usdz');
+
+                async function checkAsset(url, pill) {
+                    if (!pill) return;
+                    try {
+                        const r = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+                        if (r.ok) pill.classList.add('ok');
+                        else pill.classList.remove('ok');
+                    } catch (e) {
+                        pill.classList.remove('ok');
+                    }
+                }
+
+                // default to red until proven OK
+                if (glbPill) glbPill.classList.remove('ok');
+                if (usdzPill) usdzPill.classList.remove('ok');
+                checkAsset('/assets/AnatomyGeometry-Full-GLB.glb', glbPill);
+                checkAsset('/assets/Skeleton.usdz', usdzPill);
             }
         }
         
