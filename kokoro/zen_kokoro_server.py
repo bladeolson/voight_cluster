@@ -2124,21 +2124,7 @@ async def dashboard(request: Request):
                 <a href="{node.url}" target="_blank" class="node-url">{node.url}</a>
 """
 
-        # TE quick control link (always inside the TE card)
-        if node.name == "te":
-            html += """
-                <div class="node-details" style="padding-top:0.6rem;">
-                    <div style="text-align:center;">
-                        <a href="/te"
-                           style="display:inline-block; padding:8px 16px; background:var(--accent); color:white;
-                                  text-decoration:none; border-radius:6px; font-size:0.8rem;
-                                  transition: opacity 0.2s;"
-                           onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
-                            Open TE Controls
-                        </a>
-                    </div>
-                </div>
-"""
+        # TE controls are embedded directly in the TE node card below (no separate /te link)
         
         if node.online and node.status:
             # Show some details if available
@@ -2529,43 +2515,13 @@ async def dashboard(request: Request):
                         </div>
                     </div>
                 </div>
+"""
+                # Inline TE controls inside the TE node card: sliders are the live readout (no extra readout tiles)
+                html += """
                 <div class="node-details" style="padding-top:0.75rem;">
-                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
-"""
-                for i, (name, angle) in enumerate(zip(joint_names, joints)):
-                    # Color based on position (green at center, yellow at extremes)
-                    deviation = abs(angle - 90) / 90
-                    if deviation < 0.3:
-                        bar_color = "var(--online)"
-                    elif deviation < 0.6:
-                        bar_color = "#f39c12"
-                    else:
-                        bar_color = "var(--accent)"
-                    
-                    html += f"""
-                        <div id="joint-{i}" style="text-align:center; padding:4px; background:rgba(255,255,255,0.03); border-radius:4px;">
-                            <div style="font-size:0.65rem; color:var(--text-secondary); margin-bottom:2px;">{name}</div>
-                            <div id="joint-val-{i}" style="font-size:1rem; font-weight:600; color:{bar_color};">{int(angle)}°</div>
-                            <div style="height:3px; background:#333; border-radius:2px; margin-top:3px; overflow:hidden;">
-                                <div id="joint-bar-{i}" style="height:100%; width:{angle/180*100}%; background:{bar_color}; border-radius:2px; transition: width 0.2s;"></div>
-                            </div>
-                        </div>
-"""
-                html += """
-                    </div>
-                </div>
-"""
-
-                # Inline TE controls inside the TE node card (no need to open /te)
-                html += """
-                <div class="node-details" style="padding-top:0.6rem;">
-                  <details class="te-inline-controls">
-                    <summary>
-                      <span>Controls</span>
-                      <span style="opacity:0.6">Sliders</span>
-                    </summary>
-                    <div class="te-inline-body">
-                      <div class="te-inline-grid">
+                    <div class="detail-row" style="flex-direction: column; align-items: flex-start; gap: 0.6rem;">
+                      <span class="detail-label">Arm</span>
+                      <div class="te-inline-grid" style="width:100%;">
                         <div class="te-inline-servo">
                           <div class="te-inline-head"><span class="te-inline-name">Elbow</span><span class="te-inline-val" id="te-inline-val-0">90°</span></div>
                           <input id="te-inline-slider-0" type="range" min="0" max="180" value="90">
@@ -2591,15 +2547,16 @@ async def dashboard(request: Request):
                           <input id="te-inline-slider-5" type="range" min="0" max="180" value="90">
                         </div>
                       </div>
-                      <div class="te-inline-actions">
-                        <button class="te-inline-btn primary" id="te-inline-move" type="button">Move</button>
+                      <div class="te-inline-actions" style="margin-top: 2px;">
+                        <button class="te-inline-btn" id="te-inline-connect" type="button">Connect</button>
+                        <button class="te-inline-btn" id="te-inline-disconnect" type="button">Disconnect</button>
                         <button class="te-inline-btn" id="te-inline-home" type="button">Home</button>
+                        <button class="te-inline-btn primary" id="te-inline-move" type="button">Move</button>
                       </div>
-                      <div style="margin-top:8px; color: rgba(235,238,255,0.55); font-size: 0.75rem;">
-                        Uses HTTPS-safe proxies: <code>/proxy/te/arm</code>, <code>/proxy/te/move</code>, <code>/proxy/te/home</code>.
+                      <div style="margin-top:6px; color: rgba(235,238,255,0.55); font-size: 0.75rem;">
+                        Uses HTTPS-safe proxies: <code>/proxy/te/arm</code>, <code>/proxy/te/move</code>, <code>/proxy/te/connect</code>, <code>/proxy/te/disconnect</code>, <code>/proxy/te/home</code>.
                       </div>
                     </div>
-                  </details>
                 </div>
 """
         
@@ -2689,6 +2646,8 @@ async def dashboard(request: Request):
             if (teInline.inited) return;
             const moveBtn = document.getElementById('te-inline-move');
             const homeBtn = document.getElementById('te-inline-home');
+            const connectBtn = document.getElementById('te-inline-connect');
+            const disconnectBtn = document.getElementById('te-inline-disconnect');
             if (!moveBtn) return; // controls not present (e.g. TE offline or arm section not rendered)
 
             for (let i = 0; i < 6; i++) {
@@ -2747,6 +2706,21 @@ async def dashboard(request: Request):
                 finally { homeBtn.disabled = false; }
             });
 
+            if (connectBtn) {
+                connectBtn.addEventListener('click', async () => {
+                    connectBtn.disabled = true;
+                    try { await fetch('/proxy/te/connect', { method: 'POST' }); } catch (e) {}
+                    finally { connectBtn.disabled = false; }
+                });
+            }
+            if (disconnectBtn) {
+                disconnectBtn.addEventListener('click', async () => {
+                    disconnectBtn.disabled = true;
+                    try { await fetch('/proxy/te/disconnect', { method: 'POST' }); } catch (e) {}
+                    finally { disconnectBtn.disabled = false; }
+                });
+            }
+
             teInline.inited = true;
         }
         
@@ -2777,19 +2751,7 @@ async def dashboard(request: Request):
                     : null;
 
                 if (joints) {
-                    joints.forEach((angle, i) => {
-                        const valEl = document.getElementById('joint-val-' + i);
-                        const barEl = document.getElementById('joint-bar-' + i);
-                        if (valEl && barEl) {
-                            const color = getColor(angle);
-                            valEl.textContent = Math.round(angle) + '°';
-                            valEl.style.color = color;
-                            barEl.style.width = (angle / 180 * 100) + '%';
-                            barEl.style.background = color;
-                        }
-                    });
-
-                    // Update inline TE sliders if present (without snap-back while dragging/recently edited)
+                    // Sliders are the live readout (no separate tile readout).
                     initTeInlineControls();
                     const now = Date.now();
                     for (let i = 0; i < Math.min(6, joints.length); i++) {
