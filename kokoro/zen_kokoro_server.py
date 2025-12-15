@@ -13,11 +13,12 @@ Port: 8025
 import asyncio
 from datetime import datetime
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from pydantic import BaseModel
 import httpx
 import requests
 import psutil
+import os
 
 
 def get_hardware_stats():
@@ -271,6 +272,36 @@ async def download_certificate():
             filename="kokoro-cert.pem"
         )
     return {"error": "Certificate not found"}
+
+
+@app.get("/assets/Skeleton.usdz")
+async def asset_skeleton_usdz():
+    """Serve Skeleton.usdz for BODY (身) mode (iOS Quick Look / AR)."""
+    repo_root = os.path.dirname(os.path.dirname(__file__))
+    path = os.path.join(repo_root, "te_arm", "Skeleton.usdz")
+    if not os.path.exists(path):
+        return {"error": "Skeleton.usdz not found", "path": path}
+    return FileResponse(
+        path,
+        media_type="model/vnd.usdz+zip",
+        filename="Skeleton.usdz",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/assets/AnatomyGeometry-Full-GLB.glb")
+async def asset_anatomy_glb():
+    """Serve AnatomyGeometry-Full-GLB.glb for BODY (身) mode (web-friendly)."""
+    repo_root = os.path.dirname(os.path.dirname(__file__))
+    path = os.path.join(repo_root, "te_arm", "AnatomyGeometry-Full-GLB.glb")
+    if not os.path.exists(path):
+        return {"error": "AnatomyGeometry-Full-GLB.glb not found", "path": path}
+    return FileResponse(
+        path,
+        media_type="model/gltf-binary",
+        filename="AnatomyGeometry-Full-GLB.glb",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @app.get("/setup", response_class=HTMLResponse)
@@ -1256,6 +1287,55 @@ async def dashboard(request: Request):
             align-items: center;
             position: relative;
         }
+
+        /* BODY (身) - Anatomy/Skeleton model panel */
+        .zen-body { display: none; width: 100%; max-width: 900px; margin: 0 auto 14px auto; }
+        .danwa-view[data-mode="mi"] .zen-body { display: block; }
+        .danwa-view[data-mode="mi"] .zen-eyebrows,
+        .danwa-view[data-mode="mi"] .zen-eyes { display: none; }
+
+        .zen-body-card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(99,102,241,0.18);
+            border-radius: 16px;
+            padding: 14px;
+            box-shadow: 0 22px 70px rgba(0,0,0,0.45);
+        }
+        .zen-body-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+        .zen-body-title {
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            color: rgba(235,238,255,0.8);
+        }
+        .zen-body-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+        .zen-body-btn {
+            display: inline-block;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(99,102,241,0.25);
+            background: rgba(255,255,255,0.03);
+            color: rgba(235,238,255,0.9);
+            text-decoration: none;
+            font-size: 0.82rem;
+        }
+        .zen-body-btn:hover { border-color: rgba(99,102,241,0.55); background: rgba(99,102,241,0.08); }
+        .zen-body-hint {
+            margin-top: 10px;
+            color: rgba(235,238,255,0.55);
+            font-size: 0.82rem;
+        }
+        .zen-body-hint code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            color: rgba(235,238,255,0.8);
+        }
         
         /* Zen Eyebrows - Wave-based emotion */
         .zen-eyebrows {
@@ -1651,6 +1731,32 @@ async def dashboard(request: Request):
             
             <!-- Eyes with Eyebrows -->
             <div class="zen-eyes-container">
+                <!-- BODY (身) - Model viewer (GLB cross-platform, USDZ for iOS AR) -->
+                <div class="zen-body" id="zen-body">
+                    <div class="zen-body-card">
+                        <div class="zen-body-header">
+                            <div class="zen-body-title">Anatomy</div>
+                            <div class="zen-body-actions">
+                                <a class="zen-body-btn" href="/assets/Skeleton.usdz" rel="ar">Open in AR (iOS)</a>
+                                <a class="zen-body-btn" href="/assets/Skeleton.usdz" download>Download USDZ</a>
+                            </div>
+                        </div>
+                        <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+                        <model-viewer
+                            id="skeleton-viewer"
+                            src="/assets/AnatomyGeometry-Full-GLB.glb"
+                            ios-src="/assets/Skeleton.usdz"
+                            alt="Anatomy / Skeleton model"
+                            camera-controls
+                            autoplay
+                            shadow-intensity="0.6"
+                            style="width:100%; height:520px; background: rgba(0,0,0,0.35); border-radius: 14px;"
+                        ></model-viewer>
+                        <div class="zen-body-hint">
+                            GLB: <code>te_arm/AnatomyGeometry-Full-GLB.glb</code> • iOS AR: <code>te_arm/Skeleton.usdz</code>
+                        </div>
+                    </div>
+                </div>
                 <!-- Eyebrows - Wave-based emotion indicators -->
                 <svg class="zen-eyebrows" viewBox="0 0 700 50" preserveAspectRatio="xMidYMid meet">
                     <path id="eyebrow-left" class="eyebrow" 
