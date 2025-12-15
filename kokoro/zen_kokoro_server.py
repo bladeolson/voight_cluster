@@ -1709,7 +1709,7 @@ async def dashboard(request: Request):
         /* Eyes - Living Organs */
         .zen-eyes {
             display: flex;
-            gap: 80px;
+            gap: 220px;
             justify-content: center;
             position: relative;
         }
