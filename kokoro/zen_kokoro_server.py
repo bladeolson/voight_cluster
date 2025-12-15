@@ -3313,48 +3313,119 @@ async def te_controls_page() -> HTMLResponse:
 
   <script>
     const state = { servos: [], connected: false, port: null };
+    const ui = {
+      controls: new Map(),       // servo_id -> { card, nameEl, valEl, slider }
+      lastUserEdit: new Map(),   // servo_id -> timestamp ms
+      dragging: new Set(),       // servo_id currently being dragged
+      userHoldMs: 8000,          // how long we "trust" UI value over polled status (prevents snap-back)
+    };
 
     function nowStr() {
       const d = new Date();
       return d.toLocaleTimeString();
     }
 
-    function render() {
-      const grid = document.getElementById('servo-grid');
-      grid.innerHTML = '';
+    function getLocalAngle(servo_id, fallback = 90) {
+      const c = ui.controls.get(servo_id);
+      if (!c) return fallback;
+      const v = parseInt(c.slider.value, 10);
+      return Number.isFinite(v) ? v : fallback;
+    }
 
-      state.servos.forEach((s) => {
+    function setServoAngleInState(servo_id, angle) {
+      const s = state.servos.find(x => x.servo_id === servo_id);
+      if (s) s.angle = angle;
+    }
+
+    function upsertServoCard(s) {
+      const grid = document.getElementById('servo-grid');
+      let c = ui.controls.get(s.servo_id);
+      if (!c) {
         const card = document.createElement('div');
         card.className = 'servo';
 
         const head = document.createElement('div');
         head.className = 'servo-head';
 
-        const name = document.createElement('div');
-        name.className = 'servo-name';
-        name.textContent = s.label ?? ('servo ' + s.servo_id);
+        const nameEl = document.createElement('div');
+        nameEl.className = 'servo-name';
 
-        const val = document.createElement('div');
-        val.className = 'servo-val';
-        val.textContent = (s.angle ?? 90) + '°';
+        const valEl = document.createElement('div');
+        valEl.className = 'servo-val';
 
-        head.appendChild(name);
-        head.appendChild(val);
+        head.appendChild(nameEl);
+        head.appendChild(valEl);
         card.appendChild(head);
 
         const slider = document.createElement('input');
         slider.type = 'range';
         slider.min = '0';
         slider.max = '180';
-        slider.value = String(s.angle ?? 90);
-        slider.addEventListener('input', (e) => {
-          s.angle = parseInt(e.target.value, 10);
-          val.textContent = s.angle + '°';
-        });
-        card.appendChild(slider);
 
+        const sid = s.servo_id;
+        const markDragging = () => ui.dragging.add(sid);
+        const unmarkDragging = () => ui.dragging.delete(sid);
+        slider.addEventListener('pointerdown', markDragging);
+        slider.addEventListener('pointerup', unmarkDragging);
+        slider.addEventListener('pointercancel', unmarkDragging);
+        slider.addEventListener('mousedown', markDragging);
+        slider.addEventListener('mouseup', unmarkDragging);
+        slider.addEventListener('touchstart', markDragging, { passive: true });
+        slider.addEventListener('touchend', unmarkDragging, { passive: true });
+        slider.addEventListener('touchcancel', unmarkDragging, { passive: true });
+
+        slider.addEventListener('input', (e) => {
+          const a = parseInt(e.target.value, 10);
+          if (!Number.isFinite(a)) return;
+          ui.lastUserEdit.set(sid, Date.now());
+          setServoAngleInState(sid, a);
+          valEl.textContent = a + '°';
+        });
+
+        card.appendChild(slider);
         grid.appendChild(card);
+
+        c = { card, nameEl, valEl, slider };
+        ui.controls.set(s.servo_id, c);
+      }
+
+      // Always update name
+      c.nameEl.textContent = s.label ?? ('servo ' + s.servo_id);
+
+      // If the user has recently edited this slider, keep the UI value and don't overwrite from polling.
+      const now = Date.now();
+      const lastEdit = ui.lastUserEdit.get(s.servo_id) || 0;
+      const hold = (now - lastEdit) < ui.userHoldMs;
+      const dragging = ui.dragging.has(s.servo_id);
+
+      const serverAngle = Number.isFinite(s.angle) ? s.angle : 90;
+      if (!dragging && !hold) {
+        c.slider.value = String(serverAngle);
+        c.valEl.textContent = serverAngle + '°';
+      } else {
+        const localAngle = getLocalAngle(s.servo_id, serverAngle);
+        c.valEl.textContent = localAngle + '°';
+        setServoAngleInState(s.servo_id, localAngle);
+      }
+    }
+
+    function syncGrid() {
+      const seen = new Set();
+      (state.servos || []).forEach((s) => {
+        if (!s || typeof s.servo_id !== 'number') return;
+        seen.add(s.servo_id);
+        upsertServoCard(s);
       });
+
+      // Remove cards for servos that disappeared
+      for (const [sid, c] of ui.controls.entries()) {
+        if (!seen.has(sid)) {
+          try { c.card.remove(); } catch (e) {}
+          ui.controls.delete(sid);
+          ui.lastUserEdit.delete(sid);
+          ui.dragging.delete(sid);
+        }
+      }
     }
 
     async function refresh() {
@@ -3368,14 +3439,27 @@ async def te_controls_page() -> HTMLResponse:
         const j = await r.json();
         state.connected = !!j.connected;
         state.port = j.port || '';
-        state.servos = Array.isArray(j.servos) ? j.servos : [];
+
+        const incoming = Array.isArray(j.servos) ? j.servos : [];
+        // Merge: if user recently edited a servo, keep their value so sliders don't "snap back".
+        const now = Date.now();
+        state.servos = incoming.map((s) => {
+          const sid = s && typeof s.servo_id === 'number' ? s.servo_id : null;
+          if (sid === null) return s;
+          const lastEdit = ui.lastUserEdit.get(sid) || 0;
+          const hold = (now - lastEdit) < ui.userHoldMs;
+          if (hold) {
+            return { ...s, angle: getLocalAngle(sid, s.angle ?? 90) };
+          }
+          return s;
+        });
 
         dot.classList.toggle('ok', state.connected);
         status.textContent = state.connected ? 'Connected' : 'Disconnected';
         port.textContent = state.port ? ('port: ' + state.port) : '';
         last.textContent = 'updated: ' + nowStr();
 
-        render();
+        syncGrid();
       } catch (e) {
         dot.classList.remove('ok');
         status.textContent = 'TE unreachable';
