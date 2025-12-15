@@ -152,13 +152,39 @@ async def check_node_status(name: str, info: dict) -> NodeStatus:
         async with httpx.AsyncClient(timeout=NODE_TIMEOUT) as client:
             response = await client.get(f"{info['url']}/status")
             response.raise_for_status()
+            status_json = response.json()
+
+            # TE compatibility:
+            # Some TE builds expose servo state at /arm (and may not include "arm" in /status).
+            # Normalize here so the dashboard always renders servo details + control link.
+            if name == "te" and isinstance(status_json, dict) and "arm" not in status_json:
+                try:
+                    arm_resp = await client.get(f"{info['url']}/arm")
+                    if arm_resp.status_code == 200:
+                        arm_json = arm_resp.json()
+                        joints = None
+                        if isinstance(arm_json, dict) and "servos" in arm_json:
+                            joints = [float(s.get("angle", 90)) for s in arm_json.get("servos", [])]
+                        elif isinstance(arm_json, dict) and "joints" in arm_json:
+                            joints = [float(x) for x in arm_json.get("joints", [])]
+
+                        status_json["arm"] = {
+                            "connected": bool(arm_json.get("connected", False)) if isinstance(arm_json, dict) else False,
+                            # Some firmware doesn't expose "enabled" separately; treat connected as enabled.
+                            "enabled": bool(arm_json.get("connected", False)) if isinstance(arm_json, dict) else False,
+                            "joints": joints if joints is not None else [90.0] * 6,
+                            "port": arm_json.get("port") if isinstance(arm_json, dict) else None,
+                            "servos": arm_json.get("servos") if isinstance(arm_json, dict) else None,
+                        }
+                except Exception:
+                    pass
             return NodeStatus(
                 name=name,
                 kanji=info["kanji"],
                 role=info["role"],
                 url=info["url"],
                 online=True,
-                status=response.json(),
+                status=status_json,
             )
     except httpx.TimeoutException:
         return NodeStatus(
@@ -539,6 +565,16 @@ async def proxy_me_analyze(prompt: str = "Describe what you see"):
     async with httpx.AsyncClient(timeout=120) as client:
         response = await client.get(f"http://me.local:8028/analyze?prompt={prompt}")
         return response.json()
+
+
+@app.get("/proxy/te/arm")
+async def proxy_te_arm():
+    """Proxy TE arm state through KOKORO (avoids HTTPS mixed-content/CORS issues in browsers)."""
+    import httpx
+    async with httpx.AsyncClient(timeout=5) as client:
+        resp = await client.get("http://te.local:8027/arm")
+        resp.raise_for_status()
+        return resp.json()
 
 
 @app.post("/proxy/llm/generate")
@@ -2281,12 +2317,12 @@ async def dashboard(request: Request):
                 html += """
                     </div>
                     <div style="margin-top:10px; text-align:center;">
-                        <a href="http://te.local:8027/dashboard" target="_blank" 
+                        <a href="http://te.local:8027/" target="_blank" 
                            style="display:inline-block; padding:6px 16px; background:var(--accent); color:white; 
                                   text-decoration:none; border-radius:4px; font-size:0.75rem; 
                                   transition: opacity 0.2s;"
                            onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
-                            Open Arm Control
+                            Open TE Arm
                         </a>
                     </div>
                 </div>
@@ -2379,9 +2415,9 @@ async def dashboard(request: Request):
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 2000);
                 
-                const response = await fetch('http://te.local:8027/arm/status', {
+                const response = await fetch('/proxy/te/arm', {
                     signal: controller.signal,
-                    mode: 'cors'
+                    cache: 'no-store'
                 });
                 clearTimeout(timeout);
                 
@@ -2390,8 +2426,12 @@ async def dashboard(request: Request):
                 const data = await response.json();
                 teAvailable = true;
                 
-                if (data.joints) {
-                    data.joints.forEach((angle, i) => {
+                const joints = (data && data.joints) ? data.joints
+                    : (data && data.servos) ? data.servos.map(s => s.angle)
+                    : null;
+
+                if (joints) {
+                    joints.forEach((angle, i) => {
                         const valEl = document.getElementById('joint-val-' + i);
                         const barEl = document.getElementById('joint-bar-' + i);
                         if (valEl && barEl) {
