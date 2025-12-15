@@ -1220,9 +1220,9 @@ async def dashboard(request: Request):
         
         .eyebrow {
             stroke: rgba(99, 102, 241, 0.85);
-            stroke-width: 3;
+            stroke-width: 3.6;
             fill: none;
-            filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.5));
+            filter: drop-shadow(0 0 7px rgba(99, 102, 241, 0.55));
             transition: stroke 0.4s ease;
         }
         
@@ -2206,7 +2206,7 @@ async def dashboard(request: Request):
         
         // Eyebrow Wave Parameters (current interpolated values)
         window.eyebrowParams = {
-            amplitude: 8,
+            amplitude: 10,
             baselineOffset: 0,
             innerBias: 0,
             outerBias: 0,
@@ -2218,13 +2218,14 @@ async def dashboard(request: Request):
         
         // Target parameters based on emotion
         const emotionPresets = {
-            calm:     { amplitude: 6,  baselineOffset: 0,  innerBias: 0,   outerBias: 0,   frequency: 0.015, motionSpeed: 0.015, symmetry: 1.0 },
-            curious:  { amplitude: 10, baselineOffset: 4,  innerBias: 0,   outerBias: 3,   frequency: 0.018, motionSpeed: 0.02,  symmetry: 0.95 },
-            concern:  { amplitude: 5,  baselineOffset: -2, innerBias: -4,  outerBias: 2,   frequency: 0.02,  motionSpeed: 0.01,  symmetry: 0.98 },
-            focus:    { amplitude: 3,  baselineOffset: -3, innerBias: 0,   outerBias: -1,  frequency: 0.03,  motionSpeed: 0.008, symmetry: 1.0 },
-            joy:      { amplitude: 8,  baselineOffset: 3,  innerBias: 2,   outerBias: 2,   frequency: 0.012, motionSpeed: 0.018, symmetry: 1.0 },
-            confused: { amplitude: 6,  baselineOffset: 0,  innerBias: -1,  outerBias: 2,   frequency: 0.02,  motionSpeed: 0.012, symmetry: 0.7 },
-            alert:    { amplitude: 12, baselineOffset: 5,  innerBias: 0,   outerBias: 0,   frequency: 0.035, motionSpeed: 0.05,  symmetry: 1.0 }
+            // More pronounced defaults (still smooth, no jitter)
+            calm:     { amplitude: 8,  baselineOffset: 0,  innerBias: 0,   outerBias: 0,   frequency: 0.015, motionSpeed: 0.015, symmetry: 1.0 },
+            curious:  { amplitude: 14, baselineOffset: 5,  innerBias: 0,   outerBias: 4,   frequency: 0.018, motionSpeed: 0.02,  symmetry: 0.95 },
+            concern:  { amplitude: 7,  baselineOffset: -2, innerBias: -5,  outerBias: 3,   frequency: 0.02,  motionSpeed: 0.01,  symmetry: 0.98 },
+            focus:    { amplitude: 5,  baselineOffset: -4, innerBias: 0,   outerBias: -2,  frequency: 0.03,  motionSpeed: 0.008, symmetry: 1.0 },
+            joy:      { amplitude: 11, baselineOffset: 4,  innerBias: 3,   outerBias: 3,   frequency: 0.012, motionSpeed: 0.018, symmetry: 1.0 },
+            confused: { amplitude: 9,  baselineOffset: 1,  innerBias: -2,  outerBias: 3,   frequency: 0.02,  motionSpeed: 0.012, symmetry: 0.7 },
+            alert:    { amplitude: 16, baselineOffset: 6,  innerBias: 0,   outerBias: 0,   frequency: 0.035, motionSpeed: 0.05,  symmetry: 1.0 }
         };
         
         function setZenEmotion(emotion) {
@@ -2348,20 +2349,22 @@ async def dashboard(request: Request):
                     
                     // Left eyebrow
                     const lx = 50 + t * 160;
-                    const wave = Math.sin(t * Math.PI * 2 + p.phase) * 1.5;
-                    const arch = Math.sin(t * Math.PI) * p.amplitude;
+                    // Wave term scales with emotion amplitude (kept subtle vs arch)
+                    const wave = Math.sin(t * Math.PI * 2 + p.phase) * (1.6 + (p.amplitude * 0.12));
+                    // Arch is the main expressive shape
+                    const arch = Math.sin(t * Math.PI) * (p.amplitude * 1.18);
                     // inner = right side of left brow (t=1), outer = left side (t=0)
-                    const bias = p.outerBias * (1-t) + p.innerBias * t;
+                    const bias = (p.outerBias * (1-t) + p.innerBias * t) * 1.25;
                     const asym = (1 - p.symmetry) * 4 * (t - 0.5);
                     const ly = baseY - p.baselineOffset - arch - bias + wave + asym;
-                    leftPoints.push({x: lx, y: Math.max(5, Math.min(45, ly))});
+                    leftPoints.push({x: lx, y: Math.max(3, Math.min(48, ly))});
                     
                     // Right eyebrow (mirrored: inner at t=0, outer at t=1)
                     const rx = 490 + t * 160;
-                    const rBias = p.innerBias * (1-t) + p.outerBias * t;
+                    const rBias = (p.innerBias * (1-t) + p.outerBias * t) * 1.25;
                     const rAsym = (1 - p.symmetry) * 4 * (0.5 - t);
                     const ry = baseY - p.baselineOffset - arch - rBias + wave + rAsym;
-                    rightPoints.push({x: rx, y: Math.max(5, Math.min(45, ry))});
+                    rightPoints.push({x: rx, y: Math.max(3, Math.min(48, ry))});
                 }
                 
                 // Build smooth quadratic bezier path
