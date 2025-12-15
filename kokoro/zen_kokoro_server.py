@@ -1585,16 +1585,16 @@ async def dashboard(request: Request):
         .zen-eyes-container::before {
             content: '';
             position: absolute;
-            top: 35%;
+            top: 10%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 1400px;
-            height: 1260px;
+            width: 7000px;
+            height: 6300px;
             background-image: url('/assets/2-XL.jpg');
             background-size: contain;
             background-repeat: no-repeat;
             background-position: center;
-            opacity: 0.28;
+            opacity: 0.25;
             pointer-events: none;
             z-index: -1;
         }
