@@ -2349,18 +2349,18 @@ async def dashboard(request: Request):
                         <span class="detail-label">🎙️ Zen Voice Interface</span>
                         
                         <!-- Voice Visualizer Canvas -->
-                        <div id="zen-voice-container" style="width: 100%; height: 200px;
+                        <div id="zen-voice-container" style="width: 100%; height: 320px;
                                 background: linear-gradient(180deg, #0a0a0a 0%, #111 100%);
                                 border-radius: 12px; border: 1px solid var(--border);
                                 padding: 0; position: relative; overflow: hidden;">
                             
                             <!-- Ambient glow effect -->
                             <div id="zen-glow" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                                    width: 240px; height: 240px; background: radial-gradient(circle, rgba(230,57,70,0.14) 0%, transparent 70%);
+                                    width: 360px; height: 360px; background: radial-gradient(circle, rgba(230,57,70,0.14) 0%, transparent 70%);
                                     border-radius: 50%; pointer-events: none; transition: all 0.3s;"></div>
                             
                             <!-- Main waveform canvas -->
-                            <canvas id="zen-waveform" width="900" height="240" style="position:absolute; inset:0; width: 100%; height: 100%; display: block;"></canvas>
+                            <canvas id="zen-waveform" width="1200" height="420" style="position:absolute; inset:0; width: 100%; height: 100%; display: block;"></canvas>
                             
                             <!-- Status text -->
                             <div id="zen-status" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -2377,17 +2377,17 @@ async def dashboard(request: Request):
                         </div>
                         
                         <!-- Control buttons -->
-                        <div style="display: flex; gap: 10px; width: 100%; justify-content: center; margin-top: 8px;">
+                        <div style="display: flex; gap: 10px; width: 100%; justify-content: center; margin-top: 16px;">
                             <button id="zen-talk-btn" onclick="toggleZenVoice()" aria-label="Talk to Zen"
-                                    style="padding: 10px 16px; background: var(--accent); color: white; border: none; 
-                                           border-radius: 999px; cursor: pointer; font-size: 0.95rem; font-weight: 600;
+                                    style="padding: 12px 18px; background: var(--accent); color: white; border: none; 
+                                           border-radius: 999px; cursor: pointer; font-size: 1rem; font-weight: 600;
                                            transition: all 0.2s; display: inline-flex; align-items: center; justify-content:center; gap: 0;">
                                 <span style="font-size: 1.15rem; line-height: 1;">🎤</span>
                             </button>
                             <a href="{voice_url}" target="_blank" 
-                               style="padding: 10px 16px; background: transparent; color: var(--text-secondary); 
+                               style="padding: 12px 18px; background: transparent; color: var(--text-secondary); 
                                       border: 1px solid var(--border); border-radius: 6px; text-decoration: none;
-                                      font-size: 0.8rem; transition: all 0.2s; display: flex; align-items: center;"
+                                      font-size: 0.85rem; transition: all 0.2s; display: flex; align-items: center;"
                                onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'" 
                                onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)'">
                                 ↗
