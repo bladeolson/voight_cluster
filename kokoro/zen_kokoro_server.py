@@ -2760,7 +2760,7 @@ async def dashboard(request: Request):
 
         // Mapping: UI role index -> TE servo_id (persisted on KOKORO + cached in localStorage)
         const teRoleNames = ['Base', 'Shoulder', 'Elbow', 'Wrist Bend', 'Wrist Swivel', 'Grip'];
-        let teServoMap = {load_te_servo_map()};
+        let teServoMap = [0, 1, 2, 3, 4, 5]; // default; will be overwritten by localStorage or server
 
         function loadTeServoMapFromLocalStorage() {
             try {
@@ -2805,6 +2805,23 @@ async def dashboard(request: Request):
         // prefer localStorage override, otherwise server default
         const localMap = loadTeServoMapFromLocalStorage();
         if (localMap) teServoMap = localMap;
+
+        // Also try to load from server (async) in case it has a newer/different map
+        (async () => {
+            const serverMap = await loadTeServoMapFromServer();
+            if (serverMap && !localMap) {
+                teServoMap = serverMap;
+                // If UI already populated, update selects
+                for (let i = 0; i < 6; i++) {
+                    const sel = document.getElementById('te-map-' + i);
+                    const val = document.getElementById('te-map-val-' + i);
+                    if (sel && val) {
+                        sel.value = String(teServoMap[i] ?? i);
+                        val.textContent = sel.value;
+                    }
+                }
+            }
+        })();
 
         function initTeInlineControls() {
             if (teInline.inited) return;
@@ -2916,8 +2933,9 @@ async def dashboard(request: Request):
                     autoMapBtn.disabled = true;
                     try {
                         // Load server mapping as baseline if local not set
+                        const freshLocalMap = loadTeServoMapFromLocalStorage();
                         const srv = await loadTeServoMapFromServer();
-                        if (srv && !localMap) teServoMap = srv;
+                        if (srv && !freshLocalMap) teServoMap = srv;
 
                         const roleByKeyword = (txt) => {
                             const t = (txt || '').toLowerCase();
