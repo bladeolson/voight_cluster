@@ -1679,23 +1679,27 @@ async def dashboard(request: Request):
             box-shadow: 0 0 14px rgba(34,197,94,0.18);
         }
         
-        /* Zen Eyebrows - positioned above each eye */
-        .zen-eyebrows-container {
-            display: flex;
-            justify-content: center;
-            gap: 500px;
-            width: 100%;
-            min-width: 1200px;
-            margin-bottom: -10px;
-            position: relative;
-            z-index: 10;
-            overflow: visible;
+        /* Eyebrows as pseudo-elements above each eye */
+        .eye::before {
+            content: '';
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 180px;
+            height: 4px;
+            background: rgba(99, 102, 241, 0.85);
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+            z-index: 20;
         }
         
-        .eyebrow-svg {
-            width: 200px;
-            height: 50px;
-            flex-shrink: 0;
+        .eye.left-eye::before {
+            transform: translateX(-50%) rotate(-8deg);
+        }
+        
+        .eye.right-eye::before {
+            transform: translateX(-50%) rotate(8deg);
         }
         
         .eyebrow {
@@ -2141,15 +2145,7 @@ async def dashboard(request: Request):
                         </div>
                     </div>
                 </div>
-                <!-- Eyebrows - positioned above each eye -->
-                <div class="zen-eyebrows-container">
-                    <svg class="eyebrow-svg left" viewBox="0 0 160 50">
-                        <path id="eyebrow-left" class="eyebrow" d="M 0 35 Q 80 15 160 35" stroke-linecap="round"/>
-                    </svg>
-                    <svg class="eyebrow-svg right" viewBox="0 0 160 50">
-                        <path id="eyebrow-right" class="eyebrow" d="M 0 35 Q 80 15 160 35" stroke-linecap="round"/>
-                    </svg>
-                </div>
+                <!-- Eyebrows removed - using CSS pseudo-elements on eyes instead -->
                 
                 <!-- Eyes - Camera Feed -->
                 <div class="zen-eyes">
