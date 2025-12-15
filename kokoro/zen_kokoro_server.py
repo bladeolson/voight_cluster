@@ -1183,6 +1183,103 @@ async def dashboard(request: Request):
             word-break: break-word;
         }
 
+        /* ME stereo thumbs inside node card (HTTPS-safe via /proxy/me/stream) */
+        .stereo-thumbs {
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .stereo-eye {
+            position: relative;
+            width: 100%;
+            height: 120px;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background: #050508;
+        }
+        .stereo-eye img {
+            width: 200%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.92;
+        }
+        .stereo-eye.left img { object-position: left center; }
+        .stereo-eye.right img { object-position: right center; }
+        .stereo-eye.offline::after {
+            content: 'Stream offline';
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(235,238,255,0.55);
+            font-size: 0.75rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            background: radial-gradient(ellipse at center, rgba(0,0,0,0.2), rgba(0,0,0,0.75));
+        }
+        .pane-badge {
+            position: absolute;
+            top: 8px;
+            left: 10px;
+            z-index: 2;
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: rgba(235,238,255,0.9);
+            background: rgba(0,0,0,0.35);
+            border: 1px solid rgba(255,255,255,0.10);
+            backdrop-filter: blur(6px);
+        }
+
+        /* TE inline controls inside node card */
+        details.te-inline-controls {
+            margin-top: 0.8rem;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            background: rgba(0,0,0,0.18);
+            overflow: hidden;
+        }
+        details.te-inline-controls > summary {
+            cursor: pointer;
+            list-style: none;
+            padding: 10px 12px;
+            color: rgba(235,238,255,0.78);
+            font-size: 0.78rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        details.te-inline-controls > summary::-webkit-details-marker { display:none; }
+        .te-inline-body { padding: 10px 12px 12px 12px; }
+        .te-inline-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+        .te-inline-servo { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 10px; }
+        .te-inline-head { display:flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+        .te-inline-name { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(235,238,255,0.62); }
+        .te-inline-val { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: rgba(235,238,255,0.9); }
+        .te-inline-servo input[type="range"] { width: 100%; }
+        .te-inline-actions { display:flex; gap: 10px; margin-top: 10px; }
+        .te-inline-btn {
+            border: 1px solid var(--border);
+            background: rgba(255,255,255,0.04);
+            color: rgba(235,238,255,0.92);
+            border-radius: 10px;
+            padding: 8px 10px;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+        .te-inline-btn.primary { background: rgba(230,57,70,0.85); border-color: rgba(230,57,70,0.6); }
+        .te-inline-btn:hover { opacity: 0.92; }
+
         .progress-bar-bg {
             width: 100px;
             height: 6px;
@@ -2161,13 +2258,24 @@ async def dashboard(request: Request):
             
             # Show camera feed if available
             if "capabilities" in node.status and node.status["capabilities"].get("camera_array", False):
-                # Use MJPEG stream for smooth video (port 8028)
-                stream_url = f"http://{node.url.split('//')[1].split(':')[0]}:8028/stream"
+                # Use HTTPS-safe proxy for MJPEG stream (avoids mixed content on https://kokoro.local)
+                stream_url = "/proxy/me/stream" if node.name == "me" else f"http://{node.url.split('//')[1].split(':')[0]}:8028/stream"
                 html += f"""
                 <div class="node-details">
                     <div class="detail-row" style="flex-direction: column; align-items: flex-start; gap: 0.5rem;">
-                        <span class="detail-label">Live Stream</span>
-                        <img src="{stream_url}" style="width: 100%; border-radius: 4px; border: 1px solid var(--border);" onerror="this.src=''; this.alt='Stream offline'">
+                        <span class="detail-label">Eyes</span>
+                        <div class="stereo-thumbs">
+                            <div class="stereo-eye left">
+                                <div class="pane-badge" title="Left eye">L</div>
+                                <img src="{stream_url}" alt="Left eye stream"
+                                     onerror="this.style.display='none'; this.parentElement.classList.add('offline');">
+                            </div>
+                            <div class="stereo-eye right">
+                                <div class="pane-badge" title="Right eye">R</div>
+                                <img src="{stream_url}" alt="Right eye stream"
+                                     onerror="this.style.display='none'; this.parentElement.classList.add('offline');">
+                            </div>
+                        </div>
                     </div>
                 </div>
 """
@@ -2445,6 +2553,53 @@ async def dashboard(request: Request):
                     </div>
                 </div>
 """
+
+                # Inline TE controls inside the TE node card (no need to open /te)
+                html += """
+                <div class="node-details" style="padding-top:0.6rem;">
+                  <details class="te-inline-controls">
+                    <summary>
+                      <span>Controls</span>
+                      <span style="opacity:0.6">Sliders</span>
+                    </summary>
+                    <div class="te-inline-body">
+                      <div class="te-inline-grid">
+                        <div class="te-inline-servo">
+                          <div class="te-inline-head"><span class="te-inline-name">Base</span><span class="te-inline-val" id="te-inline-val-0">90°</span></div>
+                          <input id="te-inline-slider-0" type="range" min="0" max="180" value="90">
+                        </div>
+                        <div class="te-inline-servo">
+                          <div class="te-inline-head"><span class="te-inline-name">Shoulder</span><span class="te-inline-val" id="te-inline-val-1">90°</span></div>
+                          <input id="te-inline-slider-1" type="range" min="0" max="180" value="90">
+                        </div>
+                        <div class="te-inline-servo">
+                          <div class="te-inline-head"><span class="te-inline-name">Elbow</span><span class="te-inline-val" id="te-inline-val-2">90°</span></div>
+                          <input id="te-inline-slider-2" type="range" min="0" max="180" value="90">
+                        </div>
+                        <div class="te-inline-servo">
+                          <div class="te-inline-head"><span class="te-inline-name">Wrist↕</span><span class="te-inline-val" id="te-inline-val-3">90°</span></div>
+                          <input id="te-inline-slider-3" type="range" min="0" max="180" value="90">
+                        </div>
+                        <div class="te-inline-servo">
+                          <div class="te-inline-head"><span class="te-inline-name">Wrist↻</span><span class="te-inline-val" id="te-inline-val-4">90°</span></div>
+                          <input id="te-inline-slider-4" type="range" min="0" max="180" value="90">
+                        </div>
+                        <div class="te-inline-servo">
+                          <div class="te-inline-head"><span class="te-inline-name">Grip</span><span class="te-inline-val" id="te-inline-val-5">90°</span></div>
+                          <input id="te-inline-slider-5" type="range" min="0" max="180" value="90">
+                        </div>
+                      </div>
+                      <div class="te-inline-actions">
+                        <button class="te-inline-btn primary" id="te-inline-move" type="button">Move</button>
+                        <button class="te-inline-btn" id="te-inline-home" type="button">Home</button>
+                      </div>
+                      <div style="margin-top:8px; color: rgba(235,238,255,0.55); font-size: 0.75rem;">
+                        Uses HTTPS-safe proxies: <code>/proxy/te/arm</code>, <code>/proxy/te/move</code>, <code>/proxy/te/home</code>.
+                      </div>
+                    </div>
+                  </details>
+                </div>
+"""
         
         if node.error:
             html += f"""
@@ -2521,6 +2676,77 @@ async def dashboard(request: Request):
         
         let teAvailable = true;
         let teRetryCount = 0;
+        const teInline = {
+            inited: false,
+            dragging: new Set(),
+            lastUserEdit: new Map(), // idx -> ts
+            holdMs: 8000
+        };
+
+        function initTeInlineControls() {
+            if (teInline.inited) return;
+            const moveBtn = document.getElementById('te-inline-move');
+            const homeBtn = document.getElementById('te-inline-home');
+            if (!moveBtn) return; // controls not present (e.g. TE offline or arm section not rendered)
+
+            for (let i = 0; i < 6; i++) {
+                const slider = document.getElementById('te-inline-slider-' + i);
+                const val = document.getElementById('te-inline-val-' + i);
+                if (!slider || !val) continue;
+
+                const mark = () => teInline.dragging.add(i);
+                const unmark = () => teInline.dragging.delete(i);
+                slider.addEventListener('pointerdown', mark);
+                slider.addEventListener('pointerup', unmark);
+                slider.addEventListener('pointercancel', unmark);
+                slider.addEventListener('mousedown', mark);
+                slider.addEventListener('mouseup', unmark);
+                slider.addEventListener('touchstart', mark, { passive: true });
+                slider.addEventListener('touchend', unmark, { passive: true });
+                slider.addEventListener('touchcancel', unmark, { passive: true });
+
+                slider.addEventListener('input', (e) => {
+                    const a = parseInt(e.target.value, 10);
+                    if (!Number.isFinite(a)) return;
+                    teInline.lastUserEdit.set(i, Date.now());
+                    val.textContent = a + '°';
+                });
+            }
+
+            async function post(url, body) {
+                const r = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: body ? JSON.stringify(body) : null,
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return await r.json();
+            }
+
+            moveBtn.addEventListener('click', async () => {
+                const commands = [];
+                for (let i = 0; i < 6; i++) {
+                    const slider = document.getElementById('te-inline-slider-' + i);
+                    if (!slider) continue;
+                    const a = parseInt(slider.value, 10);
+                    commands.push({ servo_id: i, angle: Number.isFinite(a) ? a : 90, speed: 50 });
+                }
+                moveBtn.disabled = true;
+                try {
+                    await post('/proxy/te/move', { job_id: 'dash-' + Date.now(), commands });
+                } finally {
+                    moveBtn.disabled = false;
+                }
+            });
+
+            homeBtn.addEventListener('click', async () => {
+                homeBtn.disabled = true;
+                try { await fetch('/proxy/te/home', { method: 'POST' }); } catch (e) {}
+                finally { homeBtn.disabled = false; }
+            });
+
+            teInline.inited = true;
+        }
         
         async function updateTeArm() {
             if (!teAvailable && teRetryCount < 10) {
@@ -2560,6 +2786,28 @@ async def dashboard(request: Request):
                             barEl.style.background = color;
                         }
                     });
+
+                    // Update inline TE sliders if present (without snap-back while dragging/recently edited)
+                    initTeInlineControls();
+                    const now = Date.now();
+                    for (let i = 0; i < Math.min(6, joints.length); i++) {
+                        const slider = document.getElementById('te-inline-slider-' + i);
+                        const val = document.getElementById('te-inline-val-' + i);
+                        if (!slider || !val) continue;
+
+                        const lastEdit = teInline.lastUserEdit.get(i) || 0;
+                        const hold = (now - lastEdit) < teInline.holdMs;
+                        const dragging = teInline.dragging.has(i);
+
+                        const serverAngle = Math.round(Number(joints[i] ?? 90));
+                        if (!dragging && !hold) {
+                            slider.value = String(serverAngle);
+                            val.textContent = serverAngle + '°';
+                        } else {
+                            const localAngle = parseInt(slider.value, 10);
+                            val.textContent = (Number.isFinite(localAngle) ? localAngle : 90) + '°';
+                        }
+                    }
                 }
             } catch (e) {
                 teAvailable = false;
