@@ -2638,6 +2638,145 @@ async def dashboard(request: Request):
     return HTMLResponse(content=html)
 
 
+@app.get("/me", response_class=HTMLResponse)
+async def me_stream_page() -> HTMLResponse:
+    """Standalone ME camera stream page (proxied through KOKORO, HTTPS-friendly)."""
+    html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ME Stream • VOIGHT</title>
+  <style>
+    :root {
+      --bg: #07070c;
+      --panel: rgba(255,255,255,0.06);
+      --border: rgba(99,102,241,0.22);
+      --text: rgba(235,238,255,0.92);
+      --muted: rgba(235,238,255,0.55);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(99,102,241,0.18), transparent 60%),
+        radial-gradient(900px 520px at 20% 20%, rgba(230,57,70,0.10), transparent 55%),
+        var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(10px);
+      background: rgba(7,7,12,0.65);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .bar {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 14px 16px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .brand strong { color: var(--text); letter-spacing: 0.18em; }
+    .actions { display: flex; gap: 10px; align-items: center; }
+    a.btn {
+      text-decoration: none;
+      color: var(--text);
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      padding: 9px 12px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+    }
+    .meta {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(34,197,94,0.8);
+      box-shadow: 0 0 14px rgba(34,197,94,0.25);
+      display: inline-block;
+      margin-right: 8px;
+    }
+    .stream {
+      width: 100%;
+      display: block;
+      background: #050508;
+    }
+    .hint {
+      padding: 12px 14px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: rgba(235,238,255,0.8);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <div class="brand"><strong>me</strong> stream • proxied via kokoro</div>
+      <div class="actions">
+        <a class="btn" href="/dashboard">Dashboard</a>
+        <a class="btn" href="/proxy/me/snapshot" target="_blank" rel="noopener">Snapshot</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="panel">
+      <div class="meta">
+        <div><span class="dot"></span>Live • MJPEG</div>
+        <div><code>/proxy/me/stream</code></div>
+      </div>
+      <img class="stream" src="/proxy/me/stream" alt="ME camera stream" />
+      <div class="hint">
+        If this spins forever: open <code>/proxy/me/stream</code> directly in a new tab to confirm frames are flowing.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html)
+
+
 @app.post("/dispatch")
 async def dispatch_job(request: DispatchRequest) -> DispatchResult:
     """
