@@ -505,6 +505,21 @@ async def proxy_me_analyze(prompt: str = "Describe what you see"):
         return response.json()
 
 
+@app.post("/proxy/llm/generate")
+async def proxy_llm_generate(request: Request):
+    """Proxy Ollama LLM requests through KOKORO for HTTPS compatibility."""
+    import httpx
+    
+    body = await request.json()
+    
+    async with httpx.AsyncClient(timeout=120) as client:
+        response = await client.post(
+            "http://localhost:11434/api/generate",
+            json=body
+        )
+        return response.json()
+
+
 @app.get("/status")
 def status():
     """
@@ -672,9 +687,9 @@ async def dashboard(request: Request):
                             } catch(e) { console.log('Vision unavailable'); }
                         }
                         
-                        // Send to LLM (use Ollama directly for reliability)
+                        // Send to LLM (proxied through KOKORO for HTTPS)
                         try {
-                            const resp = await fetch('http://kokoro.local:11434/api/generate', {
+                            const resp = await fetch('/proxy/llm/generate', {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json'
