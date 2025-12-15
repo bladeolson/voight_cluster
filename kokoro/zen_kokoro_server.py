@@ -1753,11 +1753,15 @@ async def dashboard(request: Request):
             width: 320px;
             height: 220px;
             border-radius: 50% / 45%;
-            overflow: hidden;
+            overflow: visible;
             border: 1px solid rgba(99, 102, 241, 0.3);
             background: #050508;
             position: relative;
             transition: all 0.4s ease;
+        }
+        
+        .eye img {
+            border-radius: 50% / 45%;
         }
         
         /* Inner vignette */
