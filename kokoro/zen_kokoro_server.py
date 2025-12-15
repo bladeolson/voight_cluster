@@ -475,8 +475,9 @@ def proxy_me_stream():
     
     def stream_generator():
         try:
-            with requests.get("http://me.local:8028/stream", stream=True, timeout=30) as r:
-                for chunk in r.iter_content(chunk_size=4096):
+            # No timeout for continuous MJPEG stream
+            with requests.get("http://me.local:8028/stream", stream=True, timeout=None) as r:
+                for chunk in r.iter_content(chunk_size=8192):
                     if chunk:
                         yield chunk
         except Exception as e:
