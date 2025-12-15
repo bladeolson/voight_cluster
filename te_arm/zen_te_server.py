@@ -242,6 +242,19 @@ class CommandResponse(BaseModel):
     joints: Optional[list[float]] = None
 
 
+class ServoCommand(BaseModel):
+    """Single servo command."""
+    servo_id: int = Field(..., ge=0, le=5, description="Servo index 0-5")
+    angle: int = Field(..., ge=0, le=180, description="Angle 0-180")
+    speed: int = Field(50, ge=1, le=100, description="Speed 1-100 (ignored for now)")
+
+
+class MoveCommands(BaseModel):
+    """Batch servo move commands (used by KOKORO dashboard)."""
+    job_id: Optional[str] = None
+    commands: list[ServoCommand]
+
+
 # -----------------------------------------------------------------------------
 # API Routes
 # -----------------------------------------------------------------------------
@@ -314,6 +327,43 @@ async def arm_move(positions: JointPositions):
         message="Move complete" if success else "Move failed",
         joints=arm_bridge.state.joints,
     )
+
+
+@app.post("/move")
+async def move_servos(cmd: MoveCommands):
+    """
+    Move individual servos by servo_id (used by KOKORO dashboard).
+    This allows moving specific servos without affecting others.
+    
+    Body: { "commands": [{"servo_id": 0, "angle": 90, "speed": 50}, ...] }
+    """
+    if not arm_bridge:
+        raise HTTPException(status_code=503, detail="Arm bridge not initialized")
+    
+    if not arm_bridge.state.connected:
+        # Still allow in simulation mode - just update internal state
+        for c in cmd.commands:
+            if 0 <= c.servo_id <= 5:
+                arm_bridge.state.joints[c.servo_id] = float(c.angle)
+        return {
+            "ok": True,
+            "message": "Simulated move (arm not connected)",
+            "joints": arm_bridge.state.joints,
+        }
+    
+    # Build new joints array from current state
+    joints = list(arm_bridge.state.joints)
+    for c in cmd.commands:
+        if 0 <= c.servo_id <= 5:
+            joints[c.servo_id] = float(c.angle)
+    
+    success = await arm_bridge.move_joints(joints, smooth=True)
+    
+    return {
+        "ok": success,
+        "message": "Move complete" if success else "Move failed",
+        "joints": arm_bridge.state.joints,
+    }
 
 
 @app.post("/arm/home", response_model=CommandResponse)
