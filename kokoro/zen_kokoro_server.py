@@ -858,6 +858,55 @@ async def dashboard(request: Request):
             padding-bottom: 0.5rem;
         }
 
+        /* Collapsible discovered services */
+        details.discovered-panel {
+            margin: 2rem 0 1rem 0;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px;
+            background: rgba(255,255,255,0.02);
+            overflow: hidden;
+        }
+        details.discovered-panel > summary {
+            cursor: pointer;
+            list-style: none;
+            padding: 0.9rem 1.1rem;
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            user-select: none;
+        }
+        details.discovered-panel > summary::-webkit-details-marker {
+            display: none;
+        }
+        .discovered-title {
+            font-size: 1.05rem;
+            color: var(--text-secondary);
+            letter-spacing: 0.04em;
+        }
+        .discovered-meta {
+            font-size: 0.8rem;
+            color: rgba(255,255,255,0.55);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .discovered-caret {
+            width: 10px;
+            height: 10px;
+            border-right: 2px solid rgba(255,255,255,0.45);
+            border-bottom: 2px solid rgba(255,255,255,0.45);
+            transform: rotate(-45deg);
+            transition: transform 0.18s ease;
+            margin-left: 6px;
+        }
+        details.discovered-panel[open] .discovered-caret {
+            transform: rotate(45deg);
+        }
+        .discovered-body {
+            padding: 0 1.1rem 1.1rem 1.1rem;
+        }
+
         .nodes {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -2117,9 +2166,17 @@ async def dashboard(request: Request):
 """
 
     if discovered:
-        html += """
-        <div class="section-title">Discovered Services</div>
-        <div class="nodes">
+        html += f"""
+        <details class="discovered-panel">
+            <summary>
+                <div class="discovered-title">Discovered Services</div>
+                <div class="discovered-meta">
+                    <span>{len(discovered)} found</span>
+                    <span class="discovered-caret"></span>
+                </div>
+            </summary>
+            <div class="discovered-body">
+                <div class="nodes">
 """
         for node in discovered:
             html += f"""
@@ -2145,7 +2202,9 @@ async def dashboard(request: Request):
             </div>
 """
         html += """
-        </div>
+                </div>
+            </div>
+        </details>
 """
 
     html += """
