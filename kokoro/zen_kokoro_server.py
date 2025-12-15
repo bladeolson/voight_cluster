@@ -1973,6 +1973,7 @@ async def dashboard(request: Request):
             justify-content: center;
             letter-spacing: 0.04em;
             position: relative;
+            margin-top: 25px; /* move Speak button down an additional 25px */
         }
         
         .danwa-talk-btn:hover {
