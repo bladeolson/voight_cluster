@@ -745,7 +745,8 @@ async def dashboard(request: Request):
                         btn.querySelector('.btn-icon').textContent = '🎤';
                         btn.querySelector('.btn-status').textContent = 'Speak';
                     } else {
-                        btn.innerHTML = '<span style="font-size:1.1rem;">🎤</span> Talk to Zen';
+                        btn.setAttribute('aria-label', 'Talk to Zen');
+                        btn.innerHTML = '<span style="font-size:1.1rem;">🎤</span>';
                     }
                 }
                 if (status && status.id !== 'danwa-status') status.textContent = 'Click to speak with Zen';
@@ -2149,11 +2150,11 @@ async def dashboard(request: Request):
                         
                         <!-- Control buttons -->
                         <div style="display: flex; gap: 10px; width: 100%; justify-content: center; margin-top: 8px;">
-                            <button id="zen-talk-btn" onclick="toggleZenVoice()" 
-                                    style="padding: 10px 24px; background: var(--accent); color: white; border: none; 
-                                           border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500;
-                                           transition: all 0.2s; display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 1.1rem;">🎤</span> Talk to Zen
+                            <button id="zen-talk-btn" onclick="toggleZenVoice()" aria-label="Talk to Zen"
+                                    style="padding: 10px 16px; background: var(--accent); color: white; border: none; 
+                                           border-radius: 999px; cursor: pointer; font-size: 0.95rem; font-weight: 600;
+                                           transition: all 0.2s; display: inline-flex; align-items: center; justify-content:center; gap: 0;">
+                                <span style="font-size: 1.15rem; line-height: 1;">🎤</span>
                             </button>
                             <a href="{voice_url}" target="_blank" 
                                style="padding: 10px 16px; background: transparent; color: var(--text-secondary); 
@@ -2161,7 +2162,7 @@ async def dashboard(request: Request):
                                       font-size: 0.8rem; transition: all 0.2s; display: flex; align-items: center;"
                                onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'" 
                                onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)'">
-                                Open Chat ↗
+                                ↗
                             </a>
                         </div>
                     </div>
