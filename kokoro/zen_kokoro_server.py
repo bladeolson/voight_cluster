@@ -1585,7 +1585,7 @@ async def dashboard(request: Request):
         .zen-eyes-container::before {
             content: '';
             position: fixed;
-            top: -720px;
+            top: -350px;
             left: 50%;
             transform: translateX(-50%);
             width: 7000px;
@@ -1594,7 +1594,7 @@ async def dashboard(request: Request):
             background-size: contain;
             background-repeat: no-repeat;
             background-position: top center;
-            opacity: 0.25;
+            opacity: 0.35;
             pointer-events: none;
             z-index: -1;
         }
@@ -1679,14 +1679,20 @@ async def dashboard(request: Request):
             box-shadow: 0 0 14px rgba(34,197,94,0.18);
         }
         
-        /* Zen Eyebrows - Wave-based emotion */
-        .zen-eyebrows {
+        /* Zen Eyebrows - positioned above each eye */
+        .zen-eyebrows-container {
+            display: flex;
+            justify-content: center;
+            gap: 650px;
             width: 100%;
-            max-width: 1600px;
-            height: 50px;
             margin-bottom: -10px;
             position: relative;
             z-index: 10;
+        }
+        
+        .eyebrow-svg {
+            width: 180px;
+            height: 50px;
         }
         
         .eyebrow {
@@ -2132,15 +2138,15 @@ async def dashboard(request: Request):
                         </div>
                     </div>
                 </div>
-                <!-- Eyebrows - Wave-based emotion indicators -->
-                <svg class="zen-eyebrows" viewBox="0 0 1600 50" preserveAspectRatio="xMidYMid meet">
-                    <path id="eyebrow-left" class="eyebrow" 
-                          d="M 30 35 Q 110 18 190 35" 
-                          stroke-linecap="round"/>
-                    <path id="eyebrow-right" class="eyebrow" 
-                          d="M 1410 35 Q 1490 18 1570 35" 
-                          stroke-linecap="round"/>
-                </svg>
+                <!-- Eyebrows - positioned above each eye -->
+                <div class="zen-eyebrows-container">
+                    <svg class="eyebrow-svg left" viewBox="0 0 160 50">
+                        <path id="eyebrow-left" class="eyebrow" d="M 0 35 Q 80 15 160 35" stroke-linecap="round"/>
+                    </svg>
+                    <svg class="eyebrow-svg right" viewBox="0 0 160 50">
+                        <path id="eyebrow-right" class="eyebrow" d="M 0 35 Q 80 15 160 35" stroke-linecap="round"/>
+                    </svg>
+                </div>
                 
                 <!-- Eyes - Camera Feed -->
                 <div class="zen-eyes">
