@@ -1590,7 +1590,7 @@ async def dashboard(request: Request):
             transform: translateX(-50%);
             width: 7000px;
             height: 6300px;
-            background-image: url('/assets/2-XL.jpg');
+            background-image: url('/assets/Just_2XLLINES.png');
             background-size: contain;
             background-repeat: no-repeat;
             background-position: top center;
