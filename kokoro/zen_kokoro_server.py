@@ -1585,7 +1585,7 @@ async def dashboard(request: Request):
         .zen-eyes-container::before {
             content: '';
             position: fixed;
-            top: -350px;
+            top: -850px;
             left: 50%;
             transform: translateX(-50%);
             width: 7000px;
