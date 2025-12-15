@@ -2138,7 +2138,7 @@ async def dashboard(request: Request):
                           d="M 70 35 Q 150 18 230 35" 
                           stroke-linecap="round"/>
                     <path id="eyebrow-right" class="eyebrow" 
-                          d="M 970 35 Q 1050 18 1130 35" 
+                          d="M 1020 35 Q 1100 18 1180 35" 
                           stroke-linecap="round"/>
                 </svg>
                 
