@@ -577,6 +577,58 @@ async def proxy_te_arm():
         return resp.json()
 
 
+@app.post("/proxy/te/move")
+async def proxy_te_move(request: Request):
+    """Proxy TE /move (servo commands) through KOKORO."""
+    import httpx
+    body = await request.json()
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post("http://te.local:8027/move", json=body)
+        resp.raise_for_status()
+        return resp.json()
+
+
+@app.post("/proxy/te/gripper")
+async def proxy_te_gripper(request: Request):
+    """Proxy TE /gripper through KOKORO."""
+    import httpx
+    body = await request.json()
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post("http://te.local:8027/gripper", json=body)
+        resp.raise_for_status()
+        return resp.json()
+
+
+@app.post("/proxy/te/connect")
+async def proxy_te_connect():
+    """Proxy TE /connect through KOKORO."""
+    import httpx
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post("http://te.local:8027/connect")
+        resp.raise_for_status()
+        return resp.json()
+
+
+@app.post("/proxy/te/disconnect")
+async def proxy_te_disconnect():
+    """Proxy TE /disconnect through KOKORO."""
+    import httpx
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post("http://te.local:8027/disconnect")
+        resp.raise_for_status()
+        return resp.json()
+
+
+@app.post("/proxy/te/home")
+async def proxy_te_home():
+    """Proxy TE /home through KOKORO."""
+    import httpx
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post("http://te.local:8027/home")
+        resp.raise_for_status()
+        return resp.json()
+
+
 @app.post("/proxy/llm/generate")
 async def proxy_llm_generate(request: Request):
     """Proxy Ollama LLM requests through KOKORO for HTTPS compatibility."""
@@ -1915,6 +1967,22 @@ async def dashboard(request: Request):
                 </div>
                 <a href="{node.url}" target="_blank" class="node-url">{node.url}</a>
 """
+
+        # TE quick control link (always inside the TE card)
+        if node.name == "te":
+            html += """
+                <div class="node-details" style="padding-top:0.6rem;">
+                    <div style="text-align:center;">
+                        <a href="/te"
+                           style="display:inline-block; padding:8px 16px; background:var(--accent); color:white;
+                                  text-decoration:none; border-radius:6px; font-size:0.8rem;
+                                  transition: opacity 0.2s;"
+                           onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                            Open TE Controls
+                        </a>
+                    </div>
+                </div>
+"""
         
         if node.online and node.status:
             # Show some details if available
@@ -2315,15 +2383,6 @@ async def dashboard(request: Request):
                         </div>
 """
                 html += """
-                    </div>
-                    <div style="margin-top:10px; text-align:center;">
-                        <a href="http://te.local:8027/" target="_blank" 
-                           style="display:inline-block; padding:6px 16px; background:var(--accent); color:white; 
-                                  text-decoration:none; border-radius:4px; font-size:0.75rem; 
-                                  transition: opacity 0.2s;"
-                           onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
-                            Open TE Arm
-                        </a>
                     </div>
                 </div>
 """
@@ -3053,6 +3112,253 @@ async def me_stream_page() -> HTMLResponse:
       </div>
     </div>
   </div>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html)
+
+
+@app.get("/te", response_class=HTMLResponse)
+async def te_controls_page() -> HTMLResponse:
+    """HTTPS-friendly TE control panel (proxied through KOKORO)."""
+    html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TE Controls • VOIGHT</title>
+  <style>
+    :root {
+      --bg: #07070c;
+      --panel: rgba(255,255,255,0.06);
+      --border: rgba(99,102,241,0.22);
+      --text: rgba(235,238,255,0.92);
+      --muted: rgba(235,238,255,0.55);
+      --accent: #e63946;
+      --online: #2ecc71;
+      --warn: #f39c12;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(99,102,241,0.18), transparent 60%),
+        radial-gradient(900px 520px at 20% 20%, rgba(230,57,70,0.10), transparent 55%),
+        var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(10px);
+      background: rgba(7,7,12,0.65);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .bar {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 14px 16px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .brand strong { color: var(--text); letter-spacing: 0.18em; }
+    .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    a.btn, button.btn {
+      text-decoration: none;
+      color: var(--text);
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      padding: 9px 12px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    button.btn.primary { background: rgba(230,57,70,0.90); border-color: rgba(230,57,70,0.6); }
+    button.btn.primary:hover { opacity: 0.9; }
+    button.btn.ghost:hover, a.btn:hover { border-color: rgba(99,102,241,0.55); background: rgba(99,102,241,0.08); }
+
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+    }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+    .statusline { color: var(--muted); font-size: 0.9rem; display: flex; gap: 10px; align-items: center; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(230,57,70,0.8); box-shadow: 0 0 14px rgba(230,57,70,0.15); }
+    .dot.ok { background: rgba(34,197,94,0.85); box-shadow: 0 0 14px rgba(34,197,94,0.18); }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 14px; }
+    .servo {
+      background: rgba(0,0,0,0.22);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 12px;
+    }
+    .servo-head { display:flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 10px; }
+    .servo-name { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(235,238,255,0.75); font-size: 0.78rem; }
+    .servo-val { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: rgba(235,238,255,0.92); font-size: 0.9rem; }
+    input[type="range"] { width: 100%; }
+    .hint { margin-top: 10px; color: rgba(235,238,255,0.55); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <div class="brand"><strong>te</strong> controls • proxied via kokoro</div>
+      <div class="actions">
+        <a class="btn" href="/dashboard">Dashboard</a>
+        <button class="btn ghost" id="btn-connect">Connect</button>
+        <button class="btn ghost" id="btn-home">Home</button>
+        <button class="btn ghost" id="btn-disconnect">Disconnect</button>
+        <button class="btn primary" id="btn-move">Move</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="panel">
+      <div class="row">
+        <div class="statusline">
+          <span class="dot" id="te-dot"></span>
+          <span id="te-status">Loading…</span>
+          <span style="opacity:0.5">•</span>
+          <span id="te-port" style="opacity:0.8"></span>
+        </div>
+        <div class="statusline">
+          <span id="te-last" style="opacity:0.75"></span>
+        </div>
+      </div>
+
+      <div class="grid" id="servo-grid"></div>
+      <div class="hint">
+        This page talks to TE using HTTPS-safe proxies: <code>/proxy/te/arm</code>, <code>/proxy/te/move</code>, <code>/proxy/te/gripper</code>.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const state = { servos: [], connected: false, port: null };
+
+    function nowStr() {
+      const d = new Date();
+      return d.toLocaleTimeString();
+    }
+
+    function render() {
+      const grid = document.getElementById('servo-grid');
+      grid.innerHTML = '';
+
+      state.servos.forEach((s) => {
+        const card = document.createElement('div');
+        card.className = 'servo';
+
+        const head = document.createElement('div');
+        head.className = 'servo-head';
+
+        const name = document.createElement('div');
+        name.className = 'servo-name';
+        name.textContent = s.label ?? ('servo ' + s.servo_id);
+
+        const val = document.createElement('div');
+        val.className = 'servo-val';
+        val.textContent = (s.angle ?? 90) + '°';
+
+        head.appendChild(name);
+        head.appendChild(val);
+        card.appendChild(head);
+
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = '0';
+        slider.max = '180';
+        slider.value = String(s.angle ?? 90);
+        slider.addEventListener('input', (e) => {
+          s.angle = parseInt(e.target.value, 10);
+          val.textContent = s.angle + '°';
+        });
+        card.appendChild(slider);
+
+        grid.appendChild(card);
+      });
+    }
+
+    async function refresh() {
+      const dot = document.getElementById('te-dot');
+      const status = document.getElementById('te-status');
+      const port = document.getElementById('te-port');
+      const last = document.getElementById('te-last');
+
+      try {
+        const r = await fetch('/proxy/te/arm', { cache: 'no-store' });
+        const j = await r.json();
+        state.connected = !!j.connected;
+        state.port = j.port || '';
+        state.servos = Array.isArray(j.servos) ? j.servos : [];
+
+        dot.classList.toggle('ok', state.connected);
+        status.textContent = state.connected ? 'Connected' : 'Disconnected';
+        port.textContent = state.port ? ('port: ' + state.port) : '';
+        last.textContent = 'updated: ' + nowStr();
+
+        render();
+      } catch (e) {
+        dot.classList.remove('ok');
+        status.textContent = 'TE unreachable';
+        port.textContent = '';
+        last.textContent = 'updated: ' + nowStr();
+      }
+    }
+
+    async function post(url, body) {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : null
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return await r.json();
+    }
+
+    document.getElementById('btn-connect').addEventListener('click', async () => {
+      try { await post('/proxy/te/connect'); } finally { await refresh(); }
+    });
+    document.getElementById('btn-disconnect').addEventListener('click', async () => {
+      try { await post('/proxy/te/disconnect'); } finally { await refresh(); }
+    });
+    document.getElementById('btn-home').addEventListener('click', async () => {
+      // Some TE builds may expose /home; if not, ignore.
+      try { await post('/proxy/te/home'); } catch (e) {}
+      await refresh();
+    });
+
+    document.getElementById('btn-move').addEventListener('click', async () => {
+      // TE expects { job_id, commands: [{servo_id, angle, speed}] }
+      const job_id = 'kokoro-' + Date.now();
+      const commands = state.servos.map(s => ({ servo_id: s.servo_id, angle: s.angle ?? 90, speed: 50 }));
+      try {
+        await post('/proxy/te/move', { job_id, commands });
+      } finally {
+        await refresh();
+      }
+    });
+
+    refresh();
+    setInterval(refresh, 1500);
+  </script>
 </body>
 </html>
 """
