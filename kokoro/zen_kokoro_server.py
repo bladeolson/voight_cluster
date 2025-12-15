@@ -1233,9 +1233,30 @@ async def dashboard(request: Request):
         /* Eyes - Living Organs */
         .zen-eyes {
             display: flex;
-            gap: 50px;
+            gap: 80px;
             justify-content: center;
             position: relative;
+        }
+        
+        .zen-emotion-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            font-size: 2.5rem;
+            opacity: 0.85;
+            transition: all 0.4s ease;
+            filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.6));
+        }
+        
+        .zen-emotion-emoji {
+            display: block;
+            transition: transform 0.3s ease;
+        }
+        
+        .zen-emotion-indicator:hover .zen-emotion-emoji {
+            transform: scale(1.15);
         }
         
         .eye {
@@ -1532,34 +1553,6 @@ async def dashboard(request: Request):
             opacity: 1;
         }
         
-        .zen-emotion-indicator {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            margin-bottom: 8px;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.15em;
-            color: rgba(99, 102, 241, 0.7);
-            font-family: 'JetBrains Mono', monospace;
-        }
-        
-        .zen-emotion-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: rgba(99, 102, 241, 0.6);
-            transition: all 0.4s ease;
-        }
-        
-        .zen-emotion-indicator[data-emotion="calm"] .zen-emotion-dot { background: rgba(99, 102, 241, 0.5); }
-        .zen-emotion-indicator[data-emotion="curious"] .zen-emotion-dot { background: rgba(120, 200, 180, 0.7); }
-        .zen-emotion-indicator[data-emotion="concern"] .zen-emotion-dot { background: rgba(180, 140, 200, 0.7); }
-        .zen-emotion-indicator[data-emotion="focus"] .zen-emotion-dot { background: rgba(100, 120, 180, 0.7); }
-        .zen-emotion-indicator[data-emotion="joy"] .zen-emotion-dot { background: rgba(200, 180, 120, 0.7); }
-        .zen-emotion-indicator[data-emotion="confused"] .zen-emotion-dot { background: rgba(180, 160, 140, 0.7); }
-        .zen-emotion-indicator[data-emotion="alert"] .zen-emotion-dot { background: rgba(200, 120, 120, 0.7); }
         
         /* Adjust nodes view for toggle */
         .nodes-view {
@@ -1599,10 +1592,6 @@ async def dashboard(request: Request):
             
             <!-- Thought Bubble - Above Eyes (Brain) -->
             <div class="zen-thought-container">
-                <div class="zen-emotion-indicator" id="zen-emotion-display" data-emotion="calm">
-                    <span class="zen-emotion-dot"></span>
-                    <span class="zen-emotion-label">calm</span>
-                </div>
                 <div class="zen-thought-bubble" id="zen-thought"></div>
             </div>
             
@@ -1623,6 +1612,12 @@ async def dashboard(request: Request):
                     <div class="eye left-eye">
                         <img src="/proxy/me/stream" alt="Left Eye" onerror="this.src=''; this.alt='👁️'">
                     </div>
+                    
+                    <!-- Mood Emoji - Between Eyes -->
+                    <div class="zen-emotion-indicator" id="zen-emotion-display" data-emotion="calm">
+                        <span class="zen-emotion-emoji">😌</span>
+                    </div>
+                    
                     <div class="eye right-eye">
                         <img src="/proxy/me/stream" alt="Right Eye" onerror="this.src=''; this.alt='👁️'">
                     </div>
@@ -2230,12 +2225,23 @@ async def dashboard(request: Request):
         function setZenEmotion(emotion) {
             window.zenEmotion = emotion;
             
+            // Emoji mapping for emotions
+            const emotionEmojis = {
+                calm: '😌',
+                curious: '🤔',
+                concern: '😟',
+                focus: '🧐',
+                joy: '😊',
+                confused: '😕',
+                alert: '😮'
+            };
+            
             // Update emotion display
             const emotionDisplay = document.getElementById('zen-emotion-display');
             if (emotionDisplay) {
                 emotionDisplay.setAttribute('data-emotion', emotion);
-                const label = emotionDisplay.querySelector('.zen-emotion-label');
-                if (label) label.textContent = emotion;
+                const emoji = emotionDisplay.querySelector('.zen-emotion-emoji');
+                if (emoji) emoji.textContent = emotionEmojis[emotion] || '😌';
             }
         }
         
