@@ -1752,20 +1752,42 @@ async def dashboard(request: Request):
         .eye {
             width: 320px;
             height: 220px;
+            position: relative;
+            overflow: visible; /* allow eyebrow to sit above the clipped viewport */
+            transition: all 0.4s ease;
+        }
+
+        /* Eyebrow line attached to each eye (not clipped by viewport) */
+        .eye .eye-brow {
+            position: absolute;
+            top: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 180px;
+            height: 4px;
+            background: rgba(99, 102, 241, 0.85);
+            border-radius: 999px;
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.45);
+            z-index: 5;
+            pointer-events: none;
+            opacity: 0.9;
+        }
+        .eye.left-eye .eye-brow { transform: translateX(-50%) rotate(-8deg); }
+        .eye.right-eye .eye-brow { transform: translateX(-50%) rotate(8deg); }
+
+        /* The clipped "eye" viewport that contains the 200%-width stereo image */
+        .eye-viewport {
+            width: 320px;
+            height: 220px;
             border-radius: 50% / 45%;
-            overflow: visible;
+            overflow: hidden; /* IMPORTANT: clip the stereo split image */
             border: 1px solid rgba(99, 102, 241, 0.3);
             background: #050508;
             position: relative;
-            transition: all 0.4s ease;
         }
-        
-        .eye img {
-            border-radius: 50% / 45%;
-        }
-        
+
         /* Inner vignette */
-        .eye::before {
+        .eye-viewport::before {
             content: '';
             position: absolute;
             inset: 0;
@@ -1775,7 +1797,7 @@ async def dashboard(request: Request):
         }
         
         /* Photonic inner halo */
-        .eye::after {
+        .eye-viewport::after {
             content: '';
             position: absolute;
             inset: -2px;
@@ -1809,7 +1831,7 @@ async def dashboard(request: Request):
             50% { transform: translate(1px, -0.5px); }
         }
         
-        .eye img {
+        .eye-viewport img {
             width: 200%;          /* stereo split: show half-frame per eye */
             height: 100%;
             object-fit: cover;
@@ -1818,10 +1840,10 @@ async def dashboard(request: Request):
         }
 
         /* Stereo crop: left eye shows left half, right eye shows right half */
-        .eye.left-eye img {
+        .eye.left-eye .eye-viewport img {
             object-position: left center;
         }
-        .eye.right-eye img {
+        .eye.right-eye .eye-viewport img {
             object-position: right center;
         }
 
@@ -2149,13 +2171,16 @@ async def dashboard(request: Request):
                         </div>
                     </div>
                 </div>
-                <!-- Eyebrows removed - using CSS pseudo-elements on eyes instead -->
+                <!-- Eyebrows are attached to each eye (see .eye-brow) -->
                 
                 <!-- Eyes - Camera Feed -->
                 <div class="zen-eyes">
                     <div class="eye left-eye">
                         <div class="eye-label" title="Left eye">L</div>
-                        <img id="left-eye-img" src="/proxy/me/stream" alt="Left Eye">
+                        <div class="eye-brow" aria-hidden="true"></div>
+                        <div class="eye-viewport">
+                            <img id="left-eye-img" src="/proxy/me/stream" alt="Left Eye">
+                        </div>
                     </div>
                     
                     <!-- Mood Emoji - Between Eyes -->
@@ -2165,7 +2190,10 @@ async def dashboard(request: Request):
                     
                     <div class="eye right-eye">
                         <div class="eye-label" title="Right eye">R</div>
-                        <img id="right-eye-img" src="/proxy/me/stream" alt="Right Eye">
+                        <div class="eye-brow" aria-hidden="true"></div>
+                        <div class="eye-viewport">
+                            <img id="right-eye-img" src="/proxy/me/stream" alt="Right Eye">
+                        </div>
                     </div>
                 </div>
             </div>
