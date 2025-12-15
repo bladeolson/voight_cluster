@@ -19,6 +19,8 @@ import httpx
 import requests
 import psutil
 import os
+import json
+from pathlib import Path
 
 
 def get_hardware_stats():
@@ -64,6 +66,45 @@ app = FastAPI(
     description="Orchestration node for the VOIGHT CLUSTER (心)",
     version="0.1.0",
 )
+
+# -----------------------------------------------------------------------------
+# TE servo mapping (UI joint index -> TE servo_id)
+# -----------------------------------------------------------------------------
+_KOKORO_DIR = Path(__file__).resolve().parent
+_TE_SERVO_MAP_PATH = _KOKORO_DIR / "te_servo_map.json"
+_DEFAULT_TE_SERVO_MAP = [0, 1, 2, 3, 4, 5]
+
+
+def _validate_te_servo_map(m) -> list[int]:
+    if not isinstance(m, list) or len(m) != 6:
+        raise ValueError("map must be a list of 6 integers")
+    out: list[int] = []
+    for x in m:
+        if not isinstance(x, int):
+            raise ValueError("map values must be integers")
+        if x < 0 or x > 5:
+            raise ValueError("map values must be in range 0..5")
+        out.append(x)
+    if len(set(out)) != 6:
+        raise ValueError("map values must be unique (a permutation of 0..5)")
+    return out
+
+
+def load_te_servo_map() -> list[int]:
+    try:
+        if _TE_SERVO_MAP_PATH.exists():
+            data = json.loads(_TE_SERVO_MAP_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and "map" in data:
+                return _validate_te_servo_map(data["map"])
+            return _validate_te_servo_map(data)
+    except Exception:
+        pass
+    return list(_DEFAULT_TE_SERVO_MAP)
+
+
+def save_te_servo_map(m: list[int]) -> None:
+    m2 = _validate_te_servo_map(m)
+    _TE_SERVO_MAP_PATH.write_text(json.dumps({"map": m2}, indent=2) + "\n", encoding="utf-8")
 
 # Known nodes in the cluster
 CLUSTER_NODES = {
@@ -629,6 +670,26 @@ async def proxy_te_home():
         return resp.json()
 
 
+@app.get("/settings/te_servo_map")
+async def get_te_servo_map() -> dict:
+    """Get the current TE UI->servo_id mapping (persisted on KOKORO)."""
+    return {"map": load_te_servo_map()}
+
+
+@app.post("/settings/te_servo_map")
+async def set_te_servo_map(request: Request) -> dict:
+    """Set the TE UI->servo_id mapping (persisted on KOKORO)."""
+    body = await request.json()
+    m = body.get("map") if isinstance(body, dict) else None
+    if m is None:
+        return {"ok": False, "error": "Missing 'map' in JSON body"}
+    try:
+        save_te_servo_map(m)
+        return {"ok": True, "map": load_te_servo_map()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @app.post("/proxy/llm/generate")
 async def proxy_llm_generate(request: Request):
     """Proxy Ollama LLM requests through KOKORO for HTTPS compatibility."""
@@ -776,7 +837,8 @@ async def dashboard(request: Request):
                         btn.innerHTML = '<span style="font-size:1.1rem;">🎤</span>';
                     }
                 }
-                if (status && status.id !== 'danwa-status') status.textContent = 'Click to speak with Zen';
+                // Keep node UI clean: no idle instruction text
+                if (status && status.id !== 'danwa-status') status.textContent = '';
                 return;
             }
             
@@ -795,7 +857,7 @@ async def dashboard(request: Request):
                         btn.innerHTML = '<span style="font-size:1.1rem;">⏹</span> Stop';
                     }
                 }
-                if (status && status.id !== 'danwa-status') status.textContent = 'Listening...';
+                if (status && status.id !== 'danwa-status') status.textContent = 'Listening';
                 if (thought) {
                     thought.textContent = '';
                     thought.classList.remove('active');
@@ -2275,28 +2337,30 @@ async def dashboard(request: Request):
                         <span class="detail-label">🎙️ Zen Voice Interface</span>
                         
                         <!-- Voice Visualizer Canvas -->
-                        <div id="zen-voice-container" style="width: 100%; background: linear-gradient(180deg, #0a0a0a 0%, #111 100%); 
-                                border-radius: 12px; border: 1px solid var(--border); padding: 20px; position: relative; overflow: hidden;">
+                        <div id="zen-voice-container" style="width: 100%; height: 200px;
+                                background: linear-gradient(180deg, #0a0a0a 0%, #111 100%);
+                                border-radius: 12px; border: 1px solid var(--border);
+                                padding: 0; position: relative; overflow: hidden;">
                             
                             <!-- Ambient glow effect -->
                             <div id="zen-glow" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                                    width: 200px; height: 200px; background: radial-gradient(circle, rgba(230,57,70,0.15) 0%, transparent 70%);
+                                    width: 240px; height: 240px; background: radial-gradient(circle, rgba(230,57,70,0.14) 0%, transparent 70%);
                                     border-radius: 50%; pointer-events: none; transition: all 0.3s;"></div>
                             
                             <!-- Main waveform canvas -->
-                            <canvas id="zen-waveform" width="600" height="120" style="width: 100%; height: 120px; display: block;"></canvas>
+                            <canvas id="zen-waveform" width="900" height="240" style="position:absolute; inset:0; width: 100%; height: 100%; display: block;"></canvas>
                             
                             <!-- Status text -->
-                            <div id="zen-status" style="text-align: center; margin-top: 12px; font-size: 0.8rem; color: var(--text-secondary);
-                                    letter-spacing: 2px; text-transform: uppercase;">
-                                Click to activate voice
+                            <div id="zen-status" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+                                    text-align: center; font-size: 0.78rem; color: rgba(235,238,255,0.55);
+                                    letter-spacing: 2px; text-transform: uppercase; pointer-events:none;">
                             </div>
                             
                             <!-- Listening indicator -->
-                            <div id="zen-listening" style="display: none; text-align: center; margin-top: 8px;">
+                            <div id="zen-listening" style="display: none; position:absolute; bottom: 10px; left: 12px;">
                                 <span style="display: inline-block; width: 8px; height: 8px; background: var(--accent); 
                                         border-radius: 50%; animation: pulse 1.5s infinite;"></span>
-                                <span style="margin-left: 8px; color: var(--accent); font-size: 0.75rem;">LISTENING</span>
+                                <span style="margin-left: 8px; color: rgba(235,238,255,0.78); font-size: 0.72rem; letter-spacing: 0.12em;">LISTENING</span>
                             </div>
                         </div>
                         
@@ -2474,9 +2538,8 @@ async def dashboard(request: Request):
                 arm_connected = arm.get("connected", False)
                 arm_enabled = arm.get("enabled", False)
                 joints = arm.get("joints", [90, 90, 90, 90, 90, 90])
-                # Servo channel labeling (matches your current TE wiring):
-                # 0=Elbow, 1=Shoulder, 2=Wrist Swivel, 3=Base, 4=Grip (unknown/keep), 5=Wrist Bend
-                joint_names = ["Elbow", "Shoulder", "Wrist Swivel", "Base", "Grip", "Wrist Bend"]
+                # UI joint roles (mapping to underlying servo_id is configurable in the node UI)
+                joint_names = ["Base", "Shoulder", "Elbow", "Wrist Bend", "Wrist Swivel", "Grip"]
                 
                 conn_class = "online" if arm_connected else "offline"
                 ena_class = "online" if arm_enabled else "offline"
@@ -2523,7 +2586,7 @@ async def dashboard(request: Request):
                       <span class="detail-label">Arm</span>
                       <div class="te-inline-grid" style="width:100%;">
                         <div class="te-inline-servo">
-                          <div class="te-inline-head"><span class="te-inline-name">Elbow</span><span class="te-inline-val" id="te-inline-val-0">90°</span></div>
+                          <div class="te-inline-head"><span class="te-inline-name">Base</span><span class="te-inline-val" id="te-inline-val-0">90°</span></div>
                           <input id="te-inline-slider-0" type="range" min="0" max="180" value="90">
                         </div>
                         <div class="te-inline-servo">
@@ -2531,19 +2594,19 @@ async def dashboard(request: Request):
                           <input id="te-inline-slider-1" type="range" min="0" max="180" value="90">
                         </div>
                         <div class="te-inline-servo">
-                          <div class="te-inline-head"><span class="te-inline-name">Wrist Swivel</span><span class="te-inline-val" id="te-inline-val-2">90°</span></div>
+                          <div class="te-inline-head"><span class="te-inline-name">Elbow</span><span class="te-inline-val" id="te-inline-val-2">90°</span></div>
                           <input id="te-inline-slider-2" type="range" min="0" max="180" value="90">
                         </div>
                         <div class="te-inline-servo">
-                          <div class="te-inline-head"><span class="te-inline-name">Base</span><span class="te-inline-val" id="te-inline-val-3">90°</span></div>
+                          <div class="te-inline-head"><span class="te-inline-name">Wrist Bend</span><span class="te-inline-val" id="te-inline-val-3">90°</span></div>
                           <input id="te-inline-slider-3" type="range" min="0" max="180" value="90">
                         </div>
                         <div class="te-inline-servo">
-                          <div class="te-inline-head"><span class="te-inline-name">Grip</span><span class="te-inline-val" id="te-inline-val-4">90°</span></div>
+                          <div class="te-inline-head"><span class="te-inline-name">Wrist Swivel</span><span class="te-inline-val" id="te-inline-val-4">90°</span></div>
                           <input id="te-inline-slider-4" type="range" min="0" max="180" value="90">
                         </div>
                         <div class="te-inline-servo">
-                          <div class="te-inline-head"><span class="te-inline-name">Wrist Bend</span><span class="te-inline-val" id="te-inline-val-5">90°</span></div>
+                          <div class="te-inline-head"><span class="te-inline-name">Grip</span><span class="te-inline-val" id="te-inline-val-5">90°</span></div>
                           <input id="te-inline-slider-5" type="range" min="0" max="180" value="90">
                         </div>
                       </div>
@@ -2553,6 +2616,47 @@ async def dashboard(request: Request):
                         <button class="te-inline-btn" id="te-inline-home" type="button">Home</button>
                         <button class="te-inline-btn primary" id="te-inline-move" type="button">Move</button>
                       </div>
+                      <details id="te-mapping" style="margin-top: 8px; width:100%;">
+                        <summary style="cursor:pointer; color: rgba(235,238,255,0.60); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase;">
+                          Mapping (calibrate)
+                        </summary>
+                        <div style="margin-top:8px; display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+                          <div class="te-inline-servo">
+                            <div class="te-inline-head"><span class="te-inline-name">Base → servo_id</span><span class="te-inline-val" id="te-map-val-0">0</span></div>
+                            <select id="te-map-0" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
+                            <button class="te-inline-btn" id="te-map-test-0" type="button" style="margin-top:8px;">Identify</button>
+                          </div>
+                          <div class="te-inline-servo">
+                            <div class="te-inline-head"><span class="te-inline-name">Shoulder → servo_id</span><span class="te-inline-val" id="te-map-val-1">1</span></div>
+                            <select id="te-map-1" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
+                            <button class="te-inline-btn" id="te-map-test-1" type="button" style="margin-top:8px;">Identify</button>
+                          </div>
+                          <div class="te-inline-servo">
+                            <div class="te-inline-head"><span class="te-inline-name">Elbow → servo_id</span><span class="te-inline-val" id="te-map-val-2">2</span></div>
+                            <select id="te-map-2" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
+                            <button class="te-inline-btn" id="te-map-test-2" type="button" style="margin-top:8px;">Identify</button>
+                          </div>
+                          <div class="te-inline-servo">
+                            <div class="te-inline-head"><span class="te-inline-name">Wrist Bend → servo_id</span><span class="te-inline-val" id="te-map-val-3">3</span></div>
+                            <select id="te-map-3" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
+                            <button class="te-inline-btn" id="te-map-test-3" type="button" style="margin-top:8px;">Identify</button>
+                          </div>
+                          <div class="te-inline-servo">
+                            <div class="te-inline-head"><span class="te-inline-name">Wrist Swivel → servo_id</span><span class="te-inline-val" id="te-map-val-4">4</span></div>
+                            <select id="te-map-4" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
+                            <button class="te-inline-btn" id="te-map-test-4" type="button" style="margin-top:8px;">Identify</button>
+                          </div>
+                          <div class="te-inline-servo">
+                            <div class="te-inline-head"><span class="te-inline-name">Grip → servo_id</span><span class="te-inline-val" id="te-map-val-5">5</span></div>
+                            <select id="te-map-5" style="width:100%; padding:8px; border-radius:10px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); color: rgba(235,238,255,0.9);"></select>
+                            <button class="te-inline-btn" id="te-map-test-5" type="button" style="margin-top:8px;">Identify</button>
+                          </div>
+                        </div>
+                        <div class="te-inline-actions" style="margin-top:10px;">
+                          <button class="te-inline-btn primary" id="te-map-save" type="button">Save Mapping</button>
+                          <button class="te-inline-btn" id="te-map-auto" type="button" title="Experimental: uses ME camera + analyze">Auto (AI)</button>
+                        </div>
+                      </details>
                       <div style="margin-top:6px; color: rgba(235,238,255,0.55); font-size: 0.75rem;">
                         Uses HTTPS-safe proxies: <code>/proxy/te/arm</code>, <code>/proxy/te/move</code>, <code>/proxy/te/connect</code>, <code>/proxy/te/disconnect</code>, <code>/proxy/te/home</code>.
                       </div>
@@ -2642,12 +2746,62 @@ async def dashboard(request: Request):
             holdMs: 8000
         };
 
+        // Mapping: UI role index -> TE servo_id (persisted on KOKORO + cached in localStorage)
+        const teRoleNames = ['Base', 'Shoulder', 'Elbow', 'Wrist Bend', 'Wrist Swivel', 'Grip'];
+        let teServoMap = {load_te_servo_map()};
+
+        function loadTeServoMapFromLocalStorage() {
+            try {
+                const raw = localStorage.getItem('teServoMap');
+                if (!raw) return null;
+                const m = JSON.parse(raw);
+                if (!Array.isArray(m) || m.length !== 6) return null;
+                const ints = m.map(x => parseInt(x, 10));
+                if (ints.some(x => !Number.isFinite(x) || x < 0 || x > 5)) return null;
+                if (new Set(ints).size !== 6) return null;
+                return ints;
+            } catch (e) { return null; }
+        }
+
+        async function loadTeServoMapFromServer() {
+            try {
+                const r = await fetch('/settings/te_servo_map', { cache: 'no-store' });
+                if (!r.ok) return null;
+                const j = await r.json();
+                const m = j && Array.isArray(j.map) ? j.map : null;
+                if (!m || m.length !== 6) return null;
+                const ints = m.map(x => parseInt(x, 10));
+                if (ints.some(x => !Number.isFinite(x) || x < 0 || x > 5)) return null;
+                if (new Set(ints).size !== 6) return null;
+                return ints;
+            } catch (e) { return null; }
+        }
+
+        async function saveTeServoMapToServer(mapArr) {
+            try {
+                const r = await fetch('/settings/te_servo_map', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ map: mapArr }),
+                });
+                return await r.json();
+            } catch (e) {
+                return { ok: false, error: String(e) };
+            }
+        }
+
+        // prefer localStorage override, otherwise server default
+        const localMap = loadTeServoMapFromLocalStorage();
+        if (localMap) teServoMap = localMap;
+
         function initTeInlineControls() {
             if (teInline.inited) return;
             const moveBtn = document.getElementById('te-inline-move');
             const homeBtn = document.getElementById('te-inline-home');
             const connectBtn = document.getElementById('te-inline-connect');
             const disconnectBtn = document.getElementById('te-inline-disconnect');
+            const saveMapBtn = document.getElementById('te-map-save');
+            const autoMapBtn = document.getElementById('te-map-auto');
             if (!moveBtn) return; // controls not present (e.g. TE offline or arm section not rendered)
 
             for (let i = 0; i < 6; i++) {
@@ -2684,13 +2838,134 @@ async def dashboard(request: Request):
                 return await r.json();
             }
 
+            function populateMappingUI() {
+                for (let i = 0; i < 6; i++) {
+                    const sel = document.getElementById('te-map-' + i);
+                    const val = document.getElementById('te-map-val-' + i);
+                    const testBtn = document.getElementById('te-map-test-' + i);
+                    if (!sel || !val || !testBtn) continue;
+                    sel.innerHTML = '';
+                    for (let s = 0; s < 6; s++) {
+                        const opt = document.createElement('option');
+                        opt.value = String(s);
+                        opt.textContent = String(s);
+                        sel.appendChild(opt);
+                    }
+                    sel.value = String(teServoMap[i] ?? i);
+                    val.textContent = sel.value;
+                    sel.addEventListener('change', () => {
+                        val.textContent = sel.value;
+                    });
+                    testBtn.addEventListener('click', async () => {
+                        const sid = parseInt(sel.value, 10);
+                        if (!Number.isFinite(sid)) return;
+                        testBtn.disabled = true;
+                        try {
+                            // "Wiggle" the selected servo_id a bit to identify motion.
+                            const slider = document.getElementById('te-inline-slider-' + i);
+                            const base = slider ? parseInt(slider.value, 10) : 90;
+                            const a1 = Math.max(0, Math.min(180, (Number.isFinite(base) ? base : 90) + 12));
+                            await post('/proxy/te/move', { job_id: 'identify-' + Date.now(), commands: [{ servo_id: sid, angle: a1, speed: 50 }] });
+                            await new Promise(r => setTimeout(r, 450));
+                            await post('/proxy/te/move', { job_id: 'identify-' + Date.now(), commands: [{ servo_id: sid, angle: (Number.isFinite(base) ? base : 90), speed: 50 }] });
+                        } finally {
+                            testBtn.disabled = false;
+                        }
+                    });
+                }
+            }
+
+            populateMappingUI();
+
+            if (saveMapBtn) {
+                saveMapBtn.addEventListener('click', async () => {
+                    const m = [];
+                    for (let i = 0; i < 6; i++) {
+                        const sel = document.getElementById('te-map-' + i);
+                        const sid = sel ? parseInt(sel.value, 10) : i;
+                        m.push(sid);
+                    }
+                    if (m.some(x => !Number.isFinite(x) || x < 0 || x > 5) || (new Set(m)).size !== 6) {
+                        alert('Mapping must be a permutation of 0..5 (each used once).');
+                        return;
+                    }
+                    teServoMap = m;
+                    localStorage.setItem('teServoMap', JSON.stringify(teServoMap));
+                    const res = await saveTeServoMapToServer(teServoMap);
+                    if (!res.ok) {
+                        alert('Saved locally, but server save failed: ' + (res.error || 'unknown'));
+                    }
+                });
+            }
+
+            if (autoMapBtn) {
+                autoMapBtn.addEventListener('click', async () => {
+                    // Experimental: uses ME vision analyze to guess which joint moved after nudging each servo_id.
+                    autoMapBtn.disabled = true;
+                    try {
+                        // Load server mapping as baseline if local not set
+                        const srv = await loadTeServoMapFromServer();
+                        if (srv && !localMap) teServoMap = srv;
+
+                        const roleByKeyword = (txt) => {
+                            const t = (txt || '').toLowerCase();
+                            if (t.includes('base')) return 0;
+                            if (t.includes('shoulder')) return 1;
+                            if (t.includes('elbow')) return 2;
+                            if (t.includes('bend')) return 3;
+                            if (t.includes('swivel') || t.includes('roll') || t.includes('yaw')) return 4;
+                            if (t.includes('grip') || t.includes('gripper') || t.includes('claw')) return 5;
+                            return null;
+                        };
+
+                        const suggestion = Array(6).fill(null); // role -> servo_id
+                        for (let sid = 0; sid < 6; sid++) {
+                            // Nudge this servo_id
+                            await post('/proxy/te/move', { job_id: 'auto-' + Date.now(), commands: [{ servo_id: sid, angle: 110, speed: 50 }] });
+                            await new Promise(r => setTimeout(r, 650));
+
+                            // Ask ME to describe which joint moved (camera must see the arm)
+                            const prompt = "A robot arm just moved one joint slightly. Which joint moved? Answer with one word from: Base, Shoulder, Elbow, Wrist Bend, Wrist Swivel, Grip.";
+                            const r = await fetch('/proxy/me/analyze?prompt=' + encodeURIComponent(prompt), { cache: 'no-store' });
+                            const j = await r.json();
+                            const txt = JSON.stringify(j);
+                            const roleIdx = roleByKeyword(txt);
+                            if (roleIdx !== null && suggestion[roleIdx] === null) {
+                                suggestion[roleIdx] = sid;
+                            }
+
+                            // Return to neutral
+                            await post('/proxy/te/move', { job_id: 'auto-' + Date.now(), commands: [{ servo_id: sid, angle: 90, speed: 50 }] });
+                            await new Promise(r => setTimeout(r, 450));
+                        }
+
+                        // Fill any unknown roles with remaining servo_ids
+                        const used = new Set(suggestion.filter(x => x !== null));
+                        const remaining = [];
+                        for (let sid = 0; sid < 6; sid++) if (!used.has(sid)) remaining.push(sid);
+                        for (let i = 0; i < 6; i++) if (suggestion[i] === null) suggestion[i] = remaining.shift() ?? i;
+
+                        teServoMap = suggestion.map(x => parseInt(x, 10));
+                        localStorage.setItem('teServoMap', JSON.stringify(teServoMap));
+                        populateMappingUI();
+                        await saveTeServoMapToServer(teServoMap);
+                        alert('Auto mapping applied (experimental). Please verify with Identify buttons.');
+                    } catch (e) {
+                        alert('Auto mapping failed: ' + String(e));
+                    } finally {
+                        autoMapBtn.disabled = false;
+                    }
+                });
+            }
+
             moveBtn.addEventListener('click', async () => {
                 const commands = [];
                 for (let i = 0; i < 6; i++) {
                     const slider = document.getElementById('te-inline-slider-' + i);
                     if (!slider) continue;
                     const a = parseInt(slider.value, 10);
-                    commands.push({ servo_id: i, angle: Number.isFinite(a) ? a : 90, speed: 50 });
+                    const sid = teServoMap[i] ?? i;
+                    commands.push({ servo_id: sid, angle: Number.isFinite(a) ? a : 90, speed: 50 });
                 }
                 moveBtn.disabled = true;
                 try {
@@ -2754,7 +3029,20 @@ async def dashboard(request: Request):
                     // Sliders are the live readout (no separate tile readout).
                     initTeInlineControls();
                     const now = Date.now();
-                    for (let i = 0; i < Math.min(6, joints.length); i++) {
+                    // Build anglesById from either joints array or servos array (if present)
+                    const anglesById = {};
+                    if (Array.isArray(data.servos)) {
+                        data.servos.forEach(s => {
+                            if (s && typeof s.servo_id === 'number') anglesById[s.servo_id] = Number(s.angle ?? 90);
+                        });
+                    }
+                    if (Array.isArray(joints)) {
+                        for (let sid = 0; sid < joints.length; sid++) {
+                            if (anglesById[sid] === undefined) anglesById[sid] = Number(joints[sid] ?? 90);
+                        }
+                    }
+
+                    for (let i = 0; i < 6; i++) {
                         const slider = document.getElementById('te-inline-slider-' + i);
                         const val = document.getElementById('te-inline-val-' + i);
                         if (!slider || !val) continue;
@@ -2763,7 +3051,8 @@ async def dashboard(request: Request):
                         const hold = (now - lastEdit) < teInline.holdMs;
                         const dragging = teInline.dragging.has(i);
 
-                        const serverAngle = Math.round(Number(joints[i] ?? 90));
+                        const sid = teServoMap[i] ?? i;
+                        const serverAngle = Math.round(Number(anglesById[sid] ?? 90));
                         if (!dragging && !hold) {
                             slider.value = String(serverAngle);
                             val.textContent = serverAngle + '°';
