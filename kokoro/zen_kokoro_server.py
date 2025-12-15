@@ -486,9 +486,18 @@ async def proxy_me_stream():
 
 @app.get("/proxy/me/stream/left")
 async def proxy_me_stream_left():
-    """Proxy ME left eye stream (GPU 0)."""
+    """Proxy ME left eye stream (GPU 0). Falls back to full stream if stereo not available."""
     import httpx
-    from fastapi.responses import StreamingResponse
+    from fastapi.responses import StreamingResponse, RedirectResponse
+    
+    # First check if stereo endpoint exists
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            check = await client.head("http://me.local:8028/stream/left")
+            if check.status_code != 200:
+                return RedirectResponse(url="/proxy/me/stream")
+    except:
+        return RedirectResponse(url="/proxy/me/stream")
     
     async def stream_generator():
         async with httpx.AsyncClient(timeout=None) as client:
@@ -504,9 +513,18 @@ async def proxy_me_stream_left():
 
 @app.get("/proxy/me/stream/right")
 async def proxy_me_stream_right():
-    """Proxy ME right eye stream (GPU 1)."""
+    """Proxy ME right eye stream (GPU 1). Falls back to full stream if stereo not available."""
     import httpx
-    from fastapi.responses import StreamingResponse
+    from fastapi.responses import StreamingResponse, RedirectResponse
+    
+    # First check if stereo endpoint exists
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            check = await client.head("http://me.local:8028/stream/right")
+            if check.status_code != 200:
+                return RedirectResponse(url="/proxy/me/stream")
+    except:
+        return RedirectResponse(url="/proxy/me/stream")
     
     async def stream_generator():
         async with httpx.AsyncClient(timeout=None) as client:
@@ -1646,7 +1664,8 @@ async def dashboard(request: Request):
                 <!-- Eyes - Camera Feed -->
                 <div class="zen-eyes">
                     <div class="eye left-eye" title="Left Eye - GPU 0">
-                        <img src="/proxy/me/stream/left" alt="Left Eye" onerror="this.src=''; this.alt='👁️'">
+                        <img src="/proxy/me/stream/left" alt="Left Eye" 
+                             onerror="this.onerror=null; this.src='/proxy/me/stream';">
                     </div>
                     
                     <!-- Mood Emoji - Between Eyes -->
@@ -1655,7 +1674,8 @@ async def dashboard(request: Request):
                     </div>
                     
                     <div class="eye right-eye" title="Right Eye - GPU 1">
-                        <img src="/proxy/me/stream/right" alt="Right Eye" onerror="this.src=''; this.alt='👁️'">
+                        <img src="/proxy/me/stream/right" alt="Right Eye" 
+                             onerror="this.onerror=null; this.src='/proxy/me/stream';">
                     </div>
                 </div>
             </div>
