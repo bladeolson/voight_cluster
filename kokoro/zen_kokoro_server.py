@@ -13,7 +13,7 @@ Port: 8025
 import asyncio
 from datetime import datetime
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
 from pydantic import BaseModel
 import httpx
 import requests
@@ -565,11 +565,19 @@ sudo update-ca-certificates</code></pre>
 """
 
 
-@app.get("/proxy/me/stream")
-def proxy_me_stream():
+@app.api_route("/proxy/me/stream", methods=["GET", "HEAD"])
+def proxy_me_stream(request: Request):
     """Proxy ME camera stream through KOKORO for HTTPS access."""
     import requests
     from fastapi.responses import StreamingResponse
+
+    # Some clients perform a HEAD request before opening the MJPEG stream.
+    if request.method == "HEAD":
+        return Response(
+            content=b"",
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={"Cache-Control": "no-store"},
+        )
     
     def stream_generator():
         try:
@@ -583,19 +591,23 @@ def proxy_me_stream():
     
     return StreamingResponse(
         stream_generator(),
-        media_type="multipart/x-mixed-replace; boundary=frame"
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store"},
     )
 
 
-@app.get("/proxy/me/snapshot")
-async def proxy_me_snapshot():
+@app.api_route("/proxy/me/snapshot", methods=["GET", "HEAD"])
+async def proxy_me_snapshot(request: Request):
     """Proxy ME camera snapshot through KOKORO."""
     import httpx
-    from fastapi.responses import Response
+    from fastapi.responses import Response as FastAPIResponse
+
+    if request.method == "HEAD":
+        return Response(content=b"", media_type="image/jpeg", headers={"Cache-Control": "no-store"})
     
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get("http://me.local:8028/snapshot")
-        return Response(content=response.content, media_type="image/jpeg")
+        return FastAPIResponse(content=response.content, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/proxy/me/analyze")
