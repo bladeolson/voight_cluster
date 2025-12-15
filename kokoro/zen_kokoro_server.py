@@ -1581,20 +1581,20 @@ async def dashboard(request: Request):
             position: relative;
         }
         
-        /* Ghost robot background behind the face */
+        /* Ghost robot background behind the face - eyes aligned */
         .zen-eyes-container::before {
             content: '';
             position: absolute;
-            top: 50%;
+            top: 42%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 500px;
-            height: 450px;
+            width: 900px;
+            height: 810px;
             background-image: url('/assets/2-XL.jpg');
             background-size: contain;
             background-repeat: no-repeat;
             background-position: center;
-            opacity: 0.35;
+            opacity: 0.30;
             pointer-events: none;
             z-index: -1;
         }
