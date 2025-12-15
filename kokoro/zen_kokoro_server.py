@@ -1588,16 +1588,15 @@ async def dashboard(request: Request):
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 420px;
-            height: 380px;
-            background-image: url('/assets/2xl-robot.png');
+            width: 500px;
+            height: 450px;
+            background-image: url('/assets/2-XL.jpg');
             background-size: contain;
             background-repeat: no-repeat;
             background-position: center;
-            opacity: 0.08;
+            opacity: 0.35;
             pointer-events: none;
             z-index: -1;
-            filter: grayscale(100%) contrast(1.2);
         }
 
         /* BODY (身) - Anatomy/Skeleton model panel */
