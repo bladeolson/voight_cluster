@@ -223,9 +223,15 @@ class ArmStatusResponse(BaseModel):
     connected: bool
     enabled: bool
     joints: list[float]
+    # Servo channel labeling (matches current TE wiring observed in KOKORO UI):
+    # 0=elbow, 1=shoulder, 2=wrist_swivel, 3=base, 4=grip, 5=wrist_bend
     joint_names: list[str] = [
-        "base", "shoulder", "elbow", 
-        "wrist_pitch", "wrist_roll", "gripper"
+        "elbow",
+        "shoulder",
+        "wrist_swivel",
+        "base",
+        "grip",
+        "wrist_bend",
     ]
 
 

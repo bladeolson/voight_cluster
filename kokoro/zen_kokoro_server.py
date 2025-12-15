@@ -2488,7 +2488,9 @@ async def dashboard(request: Request):
                 arm_connected = arm.get("connected", False)
                 arm_enabled = arm.get("enabled", False)
                 joints = arm.get("joints", [90, 90, 90, 90, 90, 90])
-                joint_names = ["Base", "Shoulder", "Elbow", "Wrist↕", "Wrist↻", "Grip"]
+                # Servo channel labeling (matches your current TE wiring):
+                # 0=Elbow, 1=Shoulder, 2=Wrist Swivel, 3=Base, 4=Grip (unknown/keep), 5=Wrist Bend
+                joint_names = ["Elbow", "Shoulder", "Wrist Swivel", "Base", "Grip", "Wrist Bend"]
                 
                 conn_class = "online" if arm_connected else "offline"
                 ena_class = "online" if arm_enabled else "offline"
@@ -2565,7 +2567,7 @@ async def dashboard(request: Request):
                     <div class="te-inline-body">
                       <div class="te-inline-grid">
                         <div class="te-inline-servo">
-                          <div class="te-inline-head"><span class="te-inline-name">Base</span><span class="te-inline-val" id="te-inline-val-0">90°</span></div>
+                          <div class="te-inline-head"><span class="te-inline-name">Elbow</span><span class="te-inline-val" id="te-inline-val-0">90°</span></div>
                           <input id="te-inline-slider-0" type="range" min="0" max="180" value="90">
                         </div>
                         <div class="te-inline-servo">
@@ -2573,19 +2575,19 @@ async def dashboard(request: Request):
                           <input id="te-inline-slider-1" type="range" min="0" max="180" value="90">
                         </div>
                         <div class="te-inline-servo">
-                          <div class="te-inline-head"><span class="te-inline-name">Elbow</span><span class="te-inline-val" id="te-inline-val-2">90°</span></div>
+                          <div class="te-inline-head"><span class="te-inline-name">Wrist Swivel</span><span class="te-inline-val" id="te-inline-val-2">90°</span></div>
                           <input id="te-inline-slider-2" type="range" min="0" max="180" value="90">
                         </div>
                         <div class="te-inline-servo">
-                          <div class="te-inline-head"><span class="te-inline-name">Wrist↕</span><span class="te-inline-val" id="te-inline-val-3">90°</span></div>
+                          <div class="te-inline-head"><span class="te-inline-name">Base</span><span class="te-inline-val" id="te-inline-val-3">90°</span></div>
                           <input id="te-inline-slider-3" type="range" min="0" max="180" value="90">
                         </div>
                         <div class="te-inline-servo">
-                          <div class="te-inline-head"><span class="te-inline-name">Wrist↻</span><span class="te-inline-val" id="te-inline-val-4">90°</span></div>
+                          <div class="te-inline-head"><span class="te-inline-name">Grip</span><span class="te-inline-val" id="te-inline-val-4">90°</span></div>
                           <input id="te-inline-slider-4" type="range" min="0" max="180" value="90">
                         </div>
                         <div class="te-inline-servo">
-                          <div class="te-inline-head"><span class="te-inline-name">Grip</span><span class="te-inline-val" id="te-inline-val-5">90°</span></div>
+                          <div class="te-inline-head"><span class="te-inline-name">Wrist Bend</span><span class="te-inline-val" id="te-inline-val-5">90°</span></div>
                           <input id="te-inline-slider-5" type="range" min="0" max="180" value="90">
                         </div>
                       </div>
@@ -2665,7 +2667,7 @@ async def dashboard(request: Request):
     
     <script>
         // Real-time TE arm updates
-        const jointNames = ['Base', 'Shoulder', 'Elbow', 'Wrist↕', 'Wrist↻', 'Grip'];
+        const jointNames = ['Elbow', 'Shoulder', 'Wrist Swivel', 'Base', 'Grip', 'Wrist Bend'];
         
         function getColor(angle) {
             const deviation = Math.abs(angle - 90) / 90;
