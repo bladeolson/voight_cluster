@@ -1682,9 +1682,9 @@ async def dashboard(request: Request):
         /* Zen Eyebrows - Wave-based emotion */
         .zen-eyebrows {
             width: 100%;
-            max-width: 1100px;
+            max-width: 1200px;
             height: 50px;
-            margin-bottom: -15px;
+            margin-bottom: -10px;
             position: relative;
             z-index: 10;
         }
@@ -1709,9 +1709,10 @@ async def dashboard(request: Request):
         /* Eyes - Living Organs */
         .zen-eyes {
             display: flex;
-            gap: 580px;
+            gap: 650px;
             justify-content: center;
             position: relative;
+            margin-top: -30px;
         }
         
         .zen-emotion-indicator {
@@ -2132,12 +2133,12 @@ async def dashboard(request: Request):
                     </div>
                 </div>
                 <!-- Eyebrows - Wave-based emotion indicators -->
-                <svg class="zen-eyebrows" viewBox="0 0 1100 50" preserveAspectRatio="xMidYMid meet">
+                <svg class="zen-eyebrows" viewBox="0 0 1200 50" preserveAspectRatio="xMidYMid meet">
                     <path id="eyebrow-left" class="eyebrow" 
-                          d="M 20 35 Q 100 20 180 35" 
+                          d="M 70 35 Q 150 18 230 35" 
                           stroke-linecap="round"/>
                     <path id="eyebrow-right" class="eyebrow" 
-                          d="M 920 35 Q 1000 20 1080 35" 
+                          d="M 970 35 Q 1050 18 1130 35" 
                           stroke-linecap="round"/>
                 </svg>
                 
