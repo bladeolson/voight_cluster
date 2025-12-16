@@ -115,7 +115,7 @@ def save_te_servo_map(m: list[int]) -> None:
 # Known nodes in the cluster
 CLUSTER_NODES = {
     "kokoro": {"url": "https://kokoro.local", "kanji": "心", "role": "orchestration"},
-    "me": {"url": "http://me.local:8026", "kanji": "目", "role": "vision"},
+    "me": {"url": "http://me.local:8028", "kanji": "目", "role": "vision"},
     "te": {"url": "http://te.local:8027", "kanji": "手", "role": "limbs"},
 }
 
@@ -602,6 +602,54 @@ def proxy_me_stream(request: Request):
     )
 
 
+@app.api_route("/proxy/me/stream/arm", methods=["GET", "HEAD"])
+def proxy_me_stream_arm(request: Request):
+    """Proxy ME arm camera (Razer) stream through KOKORO for HTTPS access."""
+    import requests
+    from fastapi.responses import StreamingResponse
+
+    if request.method == "HEAD":
+        return Response(
+            content=b"",
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={"Cache-Control": "no-store"},
+        )
+    
+    def stream_generator():
+        try:
+            with requests.get("http://me.local:8028/stream/arm", stream=True, timeout=None) as r:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+        except Exception as e:
+            print(f"Arm stream proxy error: {e}")
+    
+    return StreamingResponse(
+        stream_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/proxy/me/lidar/embed")
+async def proxy_me_lidar_embed():
+    """Proxy ME LiDAR visualization page through KOKORO for HTTPS access."""
+    import httpx
+    from fastapi.responses import HTMLResponse
+    
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get("http://me.local:8028/lidar/embed")
+            # Rewrite the fetch URL to use KOKORO's proxy
+            html = response.text.replace(
+                "fetch('/lidar/data')",
+                "fetch('/proxy/me/lidar/data')"
+            )
+            return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return HTMLResponse(content=f"<html><body style='background:#0a0a0f;color:#555;display:flex;align-items:center;justify-content:center;height:100vh'>LiDAR Offline</body></html>")
+
+
 @app.api_route("/proxy/me/snapshot", methods=["GET", "HEAD"])
 async def proxy_me_snapshot(request: Request):
     """Proxy ME camera snapshot through KOKORO."""
@@ -624,6 +672,20 @@ async def proxy_me_analyze(prompt: str = "Describe what you see"):
     async with httpx.AsyncClient(timeout=120) as client:
         response = await client.get(f"http://me.local:8028/analyze?prompt={prompt}")
         return response.json()
+
+
+@app.get("/proxy/me/lidar/data")
+async def proxy_me_lidar_data():
+    """Proxy ME LiDAR scan data through KOKORO."""
+    import httpx
+    
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get("http://me.local:8028/lidar/data")
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        return {"connected": False, "error": str(e), "point_count": 0, "scan": []}
 
 
 @app.get("/proxy/te/arm")
@@ -848,8 +910,7 @@ async def dashboard(request: Request):
                 if (typeof setZenState === 'function') setZenState('idle');
                 if (btn) {
                     if (btn.id === 'danwa-talk-btn') {
-                        btn.querySelector('.btn-icon').textContent = '🎤';
-                        btn.querySelector('.btn-status').textContent = 'Speak';
+                        btn.querySelector('.btn-icon').textContent = '⟁';
                     } else {
                         btn.setAttribute('aria-label', 'Talk to Zen');
                         btn.innerHTML = '<span style="font-size:1.1rem;">🎤</span>';
@@ -937,7 +998,7 @@ async def dashboard(request: Request):
                             
                             if (typeof setZenState === 'function') setZenState('speaking');
                             if (btn && btn.id === 'danwa-talk-btn') {
-                                btn.querySelector('.btn-status').textContent = 'Speaking';
+                                btn.querySelector('.btn-icon').textContent = '⟁';
                             }
                             if (status) status.textContent = reply;
                             if (thought) {
@@ -989,7 +1050,14 @@ async def dashboard(request: Request):
         };
     </script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;700&family=JetBrains+Mono:wght@400;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;700&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+Symbols+2&display=swap');
+        
+        /* Zen Symbols - monochrome outlined symbol font for emotion icons */
+        @font-face {
+            font-family: "Zen Symbols";
+            src: url("https://fonts.gstatic.com/s/notosanssymbols2/v24/I_uyMoGduATTei9eI8daxVHDyfisHr71ypPqfX71-AI.woff2") format("woff2");
+            font-display: swap;
+        }
         
         :root {
             --bg-primary: #0a0a0f;
@@ -1508,6 +1576,7 @@ async def dashboard(request: Request):
         /* DANWA View - Zen Presence */
         .danwa-view {
             min-height: 100vh;
+            width: 100vw;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -1525,78 +1594,148 @@ async def dashboard(request: Request):
             background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
             opacity: 0.03;
             pointer-events: none;
-        }
-        
-        /* Presence bloom */
-        .danwa-view::after {
-            content: '';
-            position: absolute;
-            top: 30%;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 80%;
-            height: 60%;
-            background: radial-gradient(ellipse, var(--zen-glow) 0%, transparent 70%);
-            pointer-events: none;
-            opacity: 0.8;
-        }
-        
-        .zen-face {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 40px;
-            max-width: 900px;
-            width: 100%;
-            position: relative;
             z-index: 1;
         }
         
-        /* State Ring - binds eyes together */
-        .zen-state-ring {
-            position: absolute;
-            top: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 750px;
-            height: 300px;
-            border: 1px solid rgba(99, 102, 241, 0.2);
-            border-radius: 50%;
-            pointer-events: none;
-            box-shadow: 0 0 40px rgba(99, 102, 241, 0.1),
-                        inset 0 0 60px rgba(99, 102, 241, 0.05);
-            animation: stateRingBreath 4s ease-in-out infinite;
-        }
-        
-        @keyframes stateRingBreath {
-            0%, 100% { opacity: 0.4; transform: translateX(-50%) scale(1); }
-            50% { opacity: 0.7; transform: translateX(-50%) scale(1.02); }
-        }
-        
-        /* Eyes Container with Eyebrows */
-        .zen-eyes-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+        /* Face Frame - contains robot image and all overlays */
+        .zen-face-frame {
             position: relative;
+            width: min(90vw, 90vh * 1.4);  /* maintain ~1.4:1 aspect ratio */
+            height: min(64vw, 90vh);
+            max-width: 1200px;
+            max-height: 857px;
+            z-index: 2;
         }
         
-        /* Ghost robot background behind the face - eyes aligned */
-        .zen-eyes-container::before {
-            content: '';
-            position: fixed;
-            top: -870px;
+        /* Robot background image - positioned to align eyes with camera feeds */
+        .zen-robot-bg {
+            position: absolute;
+            /* Adjust these to align robot eyes with camera feeds */
+            top: calc(50% + 600px);
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 155%;
+            height: auto;
+            opacity: 0.4;
+            pointer-events: none;
+            object-fit: contain;
+        }
+        
+        /* Eye base styles - positioned with percentages relative to frame */
+        .zen-eye {
+            position: absolute;
+            width: 15.5%;
+            height: 20%;
+            z-index: 10;
+        }
+        
+        /* Left eye position - adjust these percentages to align with robot */
+        .zen-eye-left {
+            top: 38%;
+            left: calc(22% - 15px);
+        }
+        
+        /* Right eye position - adjust these percentages to align with robot */
+        .zen-eye-right {
+            top: 38%;
+            right: calc(22% - 15px);
+        }
+        
+        .zen-eye .eye-viewport {
+            width: 100%;
+            height: 100%;
+            border-radius: 50% / 45%;
+            overflow: hidden;
+            border: 2px solid rgba(99, 102, 241, 0.4);
+            background: #050508;
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.2),
+                        inset 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+        
+        .zen-eye .eye-viewport img {
+            width: 200%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.95;
+        }
+        
+        .zen-eye-left .eye-viewport img {
+            object-position: left center;
+        }
+        
+        .zen-eye-right .eye-viewport img {
+            object-position: right center;
+        }
+        
+        .zen-eye .eye-label {
+            position: absolute;
+            top: 8%;
+            left: 10%;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            color: rgba(255,255,255,0.8);
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.2);
+            z-index: 5;
+        }
+        
+        .zen-eye .eye-brow {
+            position: absolute;
+            top: -8%;
             left: 50%;
             transform: translateX(-50%);
-            width: 5600px;
-            height: 5040px;
-            background-image: url('/assets/Just_2XLLINES.png');
-            background-size: contain;
-            background-repeat: no-repeat;
-            background-position: top center;
-            opacity: 0.35;
-            pointer-events: none;
-            z-index: -1;
+            width: 90%;
+            height: 3px;
+            background: rgba(99, 102, 241, 0.8);
+            border-radius: 999px;
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+        }
+        
+        .zen-eye-left .eye-brow { transform: translateX(-50%) rotate(-6deg); }
+        .zen-eye-right .eye-brow { transform: translateX(-50%) rotate(6deg); }
+        
+        /* Emotion indicator - centered between eyes */
+        .zen-emotion-indicator {
+            position: absolute;
+            top: calc(25% - 30px);
+            left: calc(50% - 50px);
+            transform: translateX(-50%);
+            font-size: 2rem;
+            z-index: 15;
+            filter: drop-shadow(0 2px 8px rgba(0,0,0,0.6));
+        }
+        
+        /* Mouth - positioned below eyes */
+        .zen-mouth {
+            position: absolute;
+            bottom: calc(18% - 10px);
+            left: 50%;
+            transform: translateX(-50%);
+            width: 45%;
+            z-index: 10;
+        }
+        
+        /* Speak button - below mouth */
+        .zen-face-frame .danwa-talk-btn {
+            position: absolute;
+            bottom: calc(5% - 55px);
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+        }
+        
+        /* Thought bubble above frame */
+        .danwa-view > .zen-thought-bubble {
+            position: absolute;
+            top: 5%;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
         }
 
         /* BODY (身) - Anatomy/Skeleton model panel */
@@ -1719,43 +1858,39 @@ async def dashboard(request: Request):
             .zen-eyebrows { opacity: 0.7; }
         }
         
-        /* Eyes - Living Organs */
+        /* Eyes - Living Organs (Responsive) */
         .zen-eyes {
             display: flex;
-            gap: 650px;
+            gap: var(--eye-gap, 45vw);
             justify-content: center;
+            align-items: center;
             position: relative;
-            margin-top: -30px;
-        }
-        
-        .zen-emotion-indicator {
-            /* Tunable emoji placement (to align with the head circle) */
-            --zen-emoji-x: -100px;  /* +right, -left */
-            --zen-emoji-y: -285px;  /* +down, -up */
-
-            position: absolute;
-            top: var(--zen-emoji-y);
-            left: calc(50% + var(--zen-emoji-x));
-            transform: translateX(-50%);
-            z-index: 20;
-            font-size: 2.5rem;
-            opacity: 0.85;
-            transition: all 0.4s ease;
-            filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.6));
+            margin-top: 0;
         }
         
         .zen-emotion-emoji {
             display: block;
             transition: transform 0.3s ease;
+            /* Monochrome symbol font - calm, outlined, architectural */
+            font-family: "Zen Symbols", "Noto Sans Symbols 2", "IBM Plex Sans", system-ui, sans-serif;
+            font-variant-ligatures: none;
+            font-feature-settings: "liga" 0;
+            /* Inherit text color for monochrome rendering */
+            color: rgba(180, 185, 200, 0.9);
+            /* Prevent color emoji fallback */
+            font-variant-emoji: text;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
         
         .zen-emotion-indicator:hover .zen-emotion-emoji {
             transform: scale(1.15);
+            color: rgba(200, 205, 220, 1);
         }
         
         .eye {
-            width: 320px;
-            height: 220px;
+            width: var(--eye-width, 140px);
+            height: var(--eye-height, 100px);
             position: relative;
             overflow: visible; /* allow eyebrow to sit above the clipped viewport */
             transition: all 0.4s ease;
@@ -1764,7 +1899,7 @@ async def dashboard(request: Request):
         /* Eyebrow line attached to each eye (not clipped by viewport) */
         .eye .eye-brow {
             position: absolute;
-            top: -18px;
+            top: calc(-12px * var(--scale, 1));
             left: 50%;
             /* Emotion-driven animation uses CSS vars set by JS */
             --brow-y: 0px;
@@ -1775,11 +1910,11 @@ async def dashboard(request: Request):
             --brow-glow-color: rgba(99, 102, 241, 0.45);
 
             transform: translateX(-50%) translateY(var(--brow-y)) rotate(var(--brow-rot)) scaleX(var(--brow-sx));
-            width: 180px;
-            height: 4px;
+            width: calc(120px * var(--scale, 1));
+            height: calc(3px * var(--scale, 1));
             background: var(--brow-color);
             border-radius: 999px;
-            box-shadow: 0 0 calc(10px * var(--brow-glow)) var(--brow-glow-color);
+            box-shadow: 0 0 calc(8px * var(--brow-glow)) var(--brow-glow-color);
             z-index: 5;
             pointer-events: none;
             opacity: 0.9;
@@ -1803,8 +1938,8 @@ async def dashboard(request: Request):
 
         /* The clipped "eye" viewport that contains the 200%-width stereo image */
         .eye-viewport {
-            width: 320px;
-            height: 220px;
+            width: 100%;
+            height: 100%;
             border-radius: 50% / 45%;
             overflow: hidden; /* IMPORTANT: clip the stereo split image */
             border: 1px solid rgba(99, 102, 241, 0.3);
@@ -1900,23 +2035,12 @@ async def dashboard(request: Request):
             .eye::after { animation: none; opacity: 0.7; }
         }
         
-        /* Mouth - Voice Field */
-        .zen-mouth {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 35px;
-            width: 100%;
-            max-width: 700px;
-            margin-top: 170px; /* moved down 150px */
-        }
-        
         .mouth-container {
             width: 100%;
             background: rgba(5, 5, 10, 0.9);
             border-radius: 100px;
-            border: 1px solid rgba(99, 102, 241, 0.15);
-            box-shadow: 0 0 50px rgba(99, 102, 241, 0.08);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            box-shadow: 0 0 30px rgba(99, 102, 241, 0.1);
             transition: all 0.4s ease;
             overflow: hidden;
             position: relative;
@@ -1926,7 +2050,7 @@ async def dashboard(request: Request):
         .wave-clip {
             position: relative;
             width: 100%;
-            height: 130px;
+            height: 120px;
             border-radius: inherit;
             overflow: hidden;
         }
@@ -1946,8 +2070,8 @@ async def dashboard(request: Request):
         }
         
         .danwa-view[data-state="speaking"] .mouth-container {
-            border-color: rgba(230, 57, 70, 0.2);
-            box-shadow: 0 0 70px rgba(230, 57, 70, 0.1);
+            border-color: rgba(99, 102, 241, 0.3);
+            box-shadow: 0 0 70px rgba(99, 102, 241, 0.15);
         }
         
         .danwa-status {
@@ -1960,7 +2084,7 @@ async def dashboard(request: Request):
             font-size: 0.9rem;
             background: rgba(15, 15, 20, 0.9);
             color: rgba(255, 255, 255, 0.75);
-            border: 1px solid rgba(230, 57, 70, 0.25);
+            border: 1px solid rgba(99, 102, 241, 0.35);
             border-radius: 40px;
             cursor: pointer;
             transition: all 0.25s ease;
@@ -1977,13 +2101,13 @@ async def dashboard(request: Request):
         }
         
         .danwa-talk-btn:hover {
-            border-color: rgba(230, 57, 70, 0.4);
-            box-shadow: 0 0 20px rgba(230, 57, 70, 0.1);
+            border-color: rgba(99, 102, 241, 0.5);
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
             color: rgba(255, 255, 255, 0.9);
         }
         
         .danwa-talk-btn:focus {
-            outline: 2px solid rgba(230, 57, 70, 0.4);
+            outline: 2px solid rgba(99, 102, 241, 0.5);
             outline-offset: 3px;
         }
         
@@ -2010,7 +2134,7 @@ async def dashboard(request: Request):
         }
         
         .danwa-view[data-state="speaking"] .danwa-talk-btn {
-            border-color: rgba(230, 57, 70, 0.35);
+            border-color: rgba(99, 102, 241, 0.45);
         }
         
         .danwa-talk-btn .btn-icon {
@@ -2033,8 +2157,8 @@ async def dashboard(request: Request):
         }
         
         .danwa-view[data-state="speaking"] .zen-state-ring {
-            border-color: rgba(230, 57, 70, 0.3);
-            box-shadow: 0 0 60px rgba(230, 57, 70, 0.15);
+            border-color: rgba(99, 102, 241, 0.4);
+            box-shadow: 0 0 60px rgba(99, 102, 241, 0.2);
             animation: stateRingSpeak 1.5s ease-in-out infinite;
         }
         
@@ -2113,8 +2237,8 @@ async def dashboard(request: Request):
             max-width: 500px;
             line-height: 1.5;
             padding: 15px 25px;
-            background: rgba(230, 57, 70, 0.1);
-            border: 1px solid rgba(230, 57, 70, 0.3);
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.35);
             border-radius: 20px;
             margin-bottom: 20px;
             opacity: 0;
@@ -2157,87 +2281,51 @@ async def dashboard(request: Request):
     
     <!-- DANWA Mode - Zen's Face -->
     <div id="danwa-view" class="danwa-view" data-state="idle" style="display: none;">
-        <div class="zen-face">
+        <!-- Face Frame: Robot image + Eyes + Mouth all in same coordinate space -->
+        <div class="zen-face-frame">
+            <!-- Robot background image (scales with container) -->
+            <img class="zen-robot-bg" src="/assets/Just_2XLLINES.png" alt="" aria-hidden="true">
             
-            <!-- State Ring - binds eyes -->
-            <div class="zen-state-ring"></div>
-            
-            <!-- Thought Bubble - Above Eyes (Brain) -->
-            <div class="zen-thought-container">
-                <div class="zen-thought-bubble" id="zen-thought"></div>
+            <!-- Left Eye - positioned over robot's left eye socket -->
+            <div class="zen-eye zen-eye-left">
+                <div class="eye-brow" aria-hidden="true"></div>
+                <div class="eye-viewport">
+                    <img src="/proxy/me/stream" alt="Left Eye">
+                </div>
+                <div class="eye-label">L</div>
             </div>
             
-            <!-- Eyes with Eyebrows -->
-            <div class="zen-eyes-container">
-                <!-- BODY (身) - Model viewer (GLB cross-platform, USDZ for iOS AR) -->
-                <div class="zen-body" id="zen-body">
-                    <div class="zen-body-card">
-                        <div class="zen-body-header">
-                            <div class="zen-body-title">Anatomy</div>
-                            <div class="zen-body-actions">
-                                <a class="zen-body-btn" href="/assets/Skeleton.usdz" rel="ar">Open in AR (iOS)</a>
-                                <a class="zen-body-btn" href="/assets/Skeleton.usdz" download>Download USDZ</a>
-                            </div>
-                        </div>
-                        <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
-                        <model-viewer
-                            id="skeleton-viewer"
-                            src="/assets/AnatomyGeometry-Full-GLB.glb"
-                            ios-src="/assets/Skeleton.usdz"
-                            alt="Anatomy / Skeleton model"
-                            camera-controls
-                            autoplay
-                            shadow-intensity="0.6"
-                            style="width:100%; height:520px; background: rgba(0,0,0,0.35); border-radius: 14px;"
-                        ></model-viewer>
-                        <div class="zen-body-hint">
-                            <div class="asset-status">
-                                <span class="asset-pill ok" id="asset-glb"><span class="asset-dot"></span>GLB</span>
-                                <span class="asset-pill ok" id="asset-usdz"><span class="asset-dot"></span>iOS AR</span>
-                            </div>
-                        </div>
-                    </div>
+            <!-- Right Eye - positioned over robot's right eye socket -->
+            <div class="zen-eye zen-eye-right">
+                <div class="eye-brow" aria-hidden="true"></div>
+                <div class="eye-viewport">
+                    <img src="/proxy/me/stream" alt="Right Eye">
                 </div>
-                <!-- Eyebrows are attached to each eye (see .eye-brow) -->
-                
-                <!-- Eyes - Camera Feed -->
-                <div class="zen-eyes">
-                    <div class="eye left-eye">
-                        <div class="eye-label" title="Left eye">L</div>
-                        <div class="eye-brow" aria-hidden="true"></div>
-                        <div class="eye-viewport">
-                            <img id="left-eye-img" src="/proxy/me/stream" alt="Left Eye">
-                        </div>
-                    </div>
-                    
-                    <!-- Mood Emoji - Between Eyes -->
-                    <div class="zen-emotion-indicator" id="zen-emotion-display" data-emotion="calm">
-                        <span class="zen-emotion-emoji">😌</span>
-                    </div>
-                    
-                    <div class="eye right-eye">
-                        <div class="eye-label" title="Right eye">R</div>
-                        <div class="eye-brow" aria-hidden="true"></div>
-                        <div class="eye-viewport">
-                            <img id="right-eye-img" src="/proxy/me/stream" alt="Right Eye">
-                        </div>
-                    </div>
-                </div>
+                <div class="eye-label">R</div>
             </div>
             
-            <!-- Mouth - Voice Interface -->
+            <!-- Emotion indicator between eyes -->
+            <div class="zen-emotion-indicator" id="zen-emotion-display">
+                <span class="zen-emotion-emoji">◡</span>
+            </div>
+            
+            <!-- Mouth - Voice waveform -->
             <div class="zen-mouth">
                 <div class="mouth-container">
                     <div class="wave-clip">
                         <canvas id="danwa-waveform"></canvas>
                     </div>
                 </div>
-                <button id="danwa-talk-btn" class="danwa-talk-btn" onclick="toggleZenVoice()">
-                    <span class="btn-icon">🎤</span>
-                    <span id="danwa-status" class="btn-status">Speak</span>
-                </button>
             </div>
+            
+            <!-- Speak button below the frame -->
+            <button id="danwa-talk-btn" class="danwa-talk-btn" onclick="toggleZenVoice()">
+                <span class="btn-icon">⟁</span>
+            </button>
         </div>
+        
+        <!-- Thought bubble (outside frame, above) -->
+        <div class="zen-thought-bubble" id="zen-thought"></div>
     </div>
     
     <!-- NODES Mode - Original Dashboard -->
@@ -2377,13 +2465,19 @@ async def dashboard(request: Request):
                 </div>
 """
             
-            # Show sensor status for ME node (3D Camera, Lidar)
+            # Show sensor status and feeds for ME node (3D Camera, Lidar)
             if node.name == "me":
-                hw = node.status.get("hardware", {})
-                cameras = hw.get("cameras_detected", 0)
-                lidar_connected = node.status.get("lidar", {}).get("connected", False) if "lidar" in node.status else False
+                # Camera status from ME node
+                camera_connected = node.status.get("camera", {}).get("connected", False)
+                camera_res = node.status.get("camera", {}).get("resolution", "")
                 
-                cam_class = "online" if cameras > 0 else "offline"
+                # LiDAR status from ME node  
+                lidar_info = node.status.get("lidar", {})
+                lidar_connected = lidar_info.get("connected", False)
+                lidar_port = lidar_info.get("port", "")
+                lidar_points = lidar_info.get("point_count", 0)
+                
+                cam_class = "online" if camera_connected else "offline"
                 lidar_class = "online" if lidar_connected else "offline"
                 
                 html += f"""
@@ -2392,38 +2486,65 @@ async def dashboard(request: Request):
                         <span class="detail-label">3D Camera</span>
                         <div style="display:flex; align-items:center; gap:6px;">
                             <div class="status-dot {cam_class}" style="width:8px;height:8px;"></div>
-                            <span>{"Connected" if cameras > 0 else "Disconnected"}</span>
+                            <span>{"Connected" if camera_connected else "Disconnected"}</span>
+                            <span style="color: var(--text-secondary); font-size: 0.7rem;">{camera_res}</span>
                         </div>
                     </div>
                     <div class="detail-row">
-                        <span class="detail-label">Lidar</span>
+                        <span class="detail-label">LiDAR</span>
                         <div style="display:flex; align-items:center; gap:6px;">
                             <div class="status-dot {lidar_class}" style="width:8px;height:8px;"></div>
                             <span>{"Connected" if lidar_connected else "Disconnected"}</span>
+                            <span style="color: #00d4ff; font-size: 0.7rem;">{lidar_points} pts</span>
                         </div>
                     </div>
                 </div>
-"""
-            
-            # Show camera feed if available
-            if "capabilities" in node.status and node.status["capabilities"].get("camera_array", False):
-                # Use HTTPS-safe proxy for MJPEG stream (avoids mixed content on https://kokoro.local)
-                stream_url = "/proxy/me/stream" if node.name == "me" else f"http://{node.url.split('//')[1].split(':')[0]}:8028/stream"
-                html += f"""
-                <div class="node-details">
-                    <div class="detail-row" style="flex-direction: column; align-items: flex-start; gap: 0.5rem;">
-                        <span class="detail-label">Eyes</span>
+                
+                <!-- Stereo Camera Feed -->
+                <div class="node-details" style="padding-top: 0.5rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <span class="detail-label">SEE</span>
                         <div class="stereo-thumbs">
                             <div class="stereo-eye left">
                                 <div class="pane-badge" title="Left eye">L</div>
-                                <img src="{stream_url}" alt="Left eye stream"
+                                <img src="/proxy/me/stream" alt="Left eye"
                                      onerror="this.style.display='none'; this.parentElement.classList.add('offline');">
                             </div>
                             <div class="stereo-eye right">
                                 <div class="pane-badge" title="Right eye">R</div>
-                                <img src="{stream_url}" alt="Right eye stream"
+                                <img src="/proxy/me/stream" alt="Right eye"
                                      onerror="this.style.display='none'; this.parentElement.classList.add('offline');">
                             </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- LiDAR Visualization - Full width with rounded corners -->
+                <div class="node-details" style="padding: 0.5rem 0.75rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="detail-label">LiDAR Scan</span>
+                            <span style="color: #00d4ff; font-size: 0.7rem;">{lidar_points} pts</span>
+                        </div>
+                        <iframe src="/proxy/me/lidar/embed" 
+                                style="width: 100%; aspect-ratio: 1; min-height: 200px; border: none; border-radius: 12px; background: #0a0a0f;"
+                                title="LiDAR Visualization"></iframe>
+                    </div>
+                </div>
+                
+                <!-- Arm POV Camera (Razer) -->
+                <div class="node-details" style="padding: 0.5rem 0.75rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="detail-label">🦾 Arm POV</span>
+                            <span style="color: #888; font-size: 0.7rem;">Razer Kiyo</span>
+                        </div>
+                        <div class="arm-pov-container" style="width: 100%; background: #050508; aspect-ratio: 16/9; min-height: 160px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border);">
+                            <img src="/proxy/me/stream/arm" 
+                                 style="width: 100%; height: 100%; object-fit: cover; display: block;"
+                                 alt="Arm Camera"
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
+                            <div style="display: none; color: rgba(235,238,255,0.35); padding: 30px; text-align: center; align-items: center; justify-content: center; width: 100%; height: 100%;">Arm Camera Offline</div>
                         </div>
                     </div>
                 </div>
@@ -2435,7 +2556,7 @@ async def dashboard(request: Request):
                 html += f"""
                 <div class="node-details">
                     <div class="detail-row" style="flex-direction: column; align-items: flex-start; gap: 0.5rem;">
-                        <span class="detail-label">🎙️ Zen Voice Interface</span>
+                        <span class="detail-label">VOX</span>
                         
                         <!-- Voice Visualizer Canvas -->
                         <div id="zen-voice-container" style="width: 100%; height: 320px;
@@ -2558,9 +2679,9 @@ async def dashboard(request: Request):
                                 // Draw actual waveform
                                 ctx.beginPath();
                                 const gradient = ctx.createLinearGradient(0, 0, width, 0);
-                                gradient.addColorStop(0, 'rgba(230, 57, 70, 0.3)');
-                                gradient.addColorStop(0.5, 'rgba(230, 57, 70, 1)');
-                                gradient.addColorStop(1, 'rgba(230, 57, 70, 0.3)');
+                                gradient.addColorStop(0, 'rgba(99, 102, 241, 0.3)');
+                                gradient.addColorStop(0.5, 'rgba(99, 102, 241, 1)');
+                                gradient.addColorStop(1, 'rgba(99, 102, 241, 0.3)');
                                 ctx.strokeStyle = gradient;
                                 ctx.lineWidth = 2.5;
                                 
@@ -2577,7 +2698,7 @@ async def dashboard(request: Request):
                                 
                                 // Glow trail
                                 ctx.beginPath();
-                                ctx.strokeStyle = 'rgba(230, 57, 70, 0.15)';
+                                ctx.strokeStyle = 'rgba(99, 102, 241, 0.2)';
                                 ctx.lineWidth = 8;
                                 x = 0;
                                 for (let i = 0; i < dataArray.length; i++) {{
@@ -2595,7 +2716,7 @@ async def dashboard(request: Request):
                                 
                                 // Primary wave
                                 ctx.beginPath();
-                                ctx.strokeStyle = 'rgba(230, 57, 70, 0.7)';
+                                ctx.strokeStyle = 'rgba(99, 102, 241, 0.7)';
                                 ctx.lineWidth = 2.5;
                                 for (let x = 0; x < width; x++) {{
                                     const y = centerY 
@@ -2608,7 +2729,7 @@ async def dashboard(request: Request):
                                 
                                 // Secondary wave
                                 ctx.beginPath();
-                                ctx.strokeStyle = 'rgba(230, 57, 70, 0.25)';
+                                ctx.strokeStyle = 'rgba(99, 102, 241, 0.25)';
                                 ctx.lineWidth = 1.5;
                                 for (let x = 0; x < width; x++) {{
                                     const y = centerY + Math.sin(x * 0.012 - phase * 0.7) * (baseAmplitude * 0.6);
@@ -3267,15 +3388,15 @@ async def dashboard(request: Request):
         function setZenEmotion(emotion) {
             window.zenEmotion = emotion;
             
-            // Emoji mapping for emotions
+            // Emotion symbols - architectural monochrome glyphs
             const emotionEmojis = {
-                calm: '😌',
-                curious: '🤔',
-                concern: '😟',
-                focus: '🧐',
-                joy: '😊',
-                confused: '😕',
-                alert: '😮'
+                calm: '◡',      // peaceful arc
+                curious: '◎',   // target/focus
+                concern: '◇',   // diamond/caution
+                focus: '◉',     // bullseye
+                joy: '✦',       // star
+                confused: '◈',  // diamond with dot
+                alert: '◬'      // triangle
             };
             
             // Update emotion display
@@ -3283,7 +3404,7 @@ async def dashboard(request: Request):
             if (emotionDisplay) {
                 emotionDisplay.setAttribute('data-emotion', emotion);
                 const emoji = emotionDisplay.querySelector('.zen-emotion-emoji');
-                if (emoji) emoji.textContent = emotionEmojis[emotion] || '😌';
+                if (emoji) emoji.textContent = emotionEmojis[emotion] || '◡';
             }
 
             // Also expose emotion on the danwa view for CSS + eyebrow animation
@@ -3592,14 +3713,14 @@ async def dashboard(request: Request):
                     ctx.stroke();
                     
                 } else if (state === 'speaking') {
-                    // Speaking - rounder, larger amplitude, red
+                    // Speaking - rounder, larger amplitude, violet
                     const amp = 25 + Math.sin(phase * 3) * 10;
                     
                     ctx.beginPath();
                     const gradient = ctx.createLinearGradient(0, 0, width, 0);
-                    gradient.addColorStop(0, 'rgba(230, 57, 70, 0.3)');
-                    gradient.addColorStop(0.5, 'rgba(230, 57, 70, 0.9)');
-                    gradient.addColorStop(1, 'rgba(230, 57, 70, 0.3)');
+                    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.3)');
+                    gradient.addColorStop(0.5, 'rgba(99, 102, 241, 0.9)');
+                    gradient.addColorStop(1, 'rgba(99, 102, 241, 0.3)');
                     ctx.strokeStyle = gradient;
                     ctx.lineWidth = 4;
                     for (let x = 0; x < width; x++) {
@@ -3612,7 +3733,7 @@ async def dashboard(request: Request):
                     
                     // Glow
                     ctx.beginPath();
-                    ctx.strokeStyle = 'rgba(230, 57, 70, 0.15)';
+                    ctx.strokeStyle = 'rgba(99, 102, 241, 0.2)';
                     ctx.lineWidth = 12;
                     for (let x = 0; x < width; x++) {
                         const y = centerY + Math.sin(x * 0.015 + phase * 2) * amp;
@@ -4147,7 +4268,9 @@ async def te_controls_page() -> HTMLResponse:
 
     refresh();
     setInterval(refresh, 1500);
+    
   </script>
+  
 </body>
 </html>
 """

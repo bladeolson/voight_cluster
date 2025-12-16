@@ -1,3 +1,6 @@
 flask
+flask-cors
 opencv-python
-
+requests
+psutil
+rplidar-roboticia
