@@ -65,10 +65,16 @@ def get_lidar_status() -> dict:
     We avoid hard-coding a model; instead we:
     - Prefer /dev/serial/by-id entries with lidar-ish keywords
     - Fall back to any ttyUSB/ttyACM port that is NOT the Arduino arm port
+    - EXCLUDE Arduino/serial adapter chips (FTDI, CH340, etc.)
     """
     lidar_keywords = [
         "lidar", "rplidar", "ydlidar", "slamtec", "s2", "a2", "a1", "x4", "ld",
         "scan", "laser", "cp210", "silabs", "prolific", "pl2303"
+    ]
+    
+    # Keywords that indicate Arduino/serial adapters - NOT LiDAR
+    arduino_keywords = [
+        "ftdi", "ft232", "ch340", "ch341", "arduino", "mega", "uno", "uart"
     ]
 
     arduino_port = None
@@ -81,12 +87,18 @@ def get_lidar_status() -> dict:
     except Exception:
         arduino_port = None
 
+    # Helper to check if a device name looks like an Arduino/serial adapter
+    def is_arduino_device(name: str) -> bool:
+        name_lower = name.lower()
+        return any(k in name_lower for k in arduino_keywords)
+    
     # 1) Prefer stable by-id symlinks
     by_id_paths = sorted(glob.glob("/dev/serial/by-id/*"))
     by_id_matches: list[dict] = []
     for p in by_id_paths:
         name = os.path.basename(p).lower()
-        if any(k in name for k in lidar_keywords):
+        # Must match LiDAR keyword AND not match Arduino keyword
+        if any(k in name for k in lidar_keywords) and not is_arduino_device(name):
             by_id_matches.append(
                 {
                     "by_id": p,
@@ -110,8 +122,8 @@ def get_lidar_status() -> dict:
             "note": f"matched by-id keyword: {m.get('name','')}",
         }
 
-    # Special case: many RPLidar units enumerate as generic USB-serial (FTDI/CP210x/etc.)
-    # If the arm is NOT connected, and we only see one serial device by-id, treat it as LiDAR.
+    # Special case: If arm is NOT connected and we see a device that's NOT an Arduino-type,
+    # it might be LiDAR. But if it looks like Arduino (FTDI, CH340), don't assume it's LiDAR.
     try:
         arm_connected = bool(arm_bridge and getattr(arm_bridge, "state", None) and arm_bridge.state.connected)
     except Exception:
@@ -119,9 +131,10 @@ def get_lidar_status() -> dict:
 
     if (not arm_connected) and len(by_id_paths) == 1:
         p = by_id_paths[0]
+        name = os.path.basename(p)
         port = os.path.realpath(p)
-        # If the only device isn't explicitly known to be the Arduino port, assume it's the LiDAR.
-        if not arduino_port or port != arduino_port:
+        # Only assume LiDAR if it doesn't look like an Arduino
+        if not is_arduino_device(name) and (not arduino_port or port != arduino_port):
             return {
                 "connected": True,
                 "port": port,

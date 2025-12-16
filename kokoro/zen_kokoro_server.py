@@ -114,9 +114,9 @@ def save_te_servo_map(m: list[int]) -> None:
 
 # Known nodes in the cluster
 CLUSTER_NODES = {
-    "kokoro": {"url": "https://kokoro.local", "kanji": "心", "role": "orchestration"},
-    "me": {"url": "http://me.local:8028", "kanji": "目", "role": "vision"},
-    "te": {"url": "http://te.local:8027", "kanji": "手", "role": "limbs"},
+    "kokoro": {"url": "https://kokoro.local", "kanji": "心", "role": "⟁Core™"},
+    "me": {"url": "http://me.local:8028", "kanji": "目", "role": "⟁Sense™"},
+    "te": {"url": "http://te.local:8027", "kanji": "手", "role": "⟁Flex™"},
 }
 
 # Timeout for node health checks (seconds)
@@ -693,7 +693,8 @@ async def proxy_te_arm():
     """Proxy TE arm state through KOKORO (avoids HTTPS mixed-content/CORS issues in browsers)."""
     import httpx
     async with httpx.AsyncClient(timeout=5) as client:
-        resp = await client.get("http://te.local:8027/arm")
+        # TE exposes arm state at /arm/status (not /arm)
+        resp = await client.get("http://te.local:8027/arm/status")
         resp.raise_for_status()
         return resp.json()
 
@@ -704,7 +705,12 @@ async def proxy_te_move(request: Request):
     import httpx
     body = await request.json()
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post("http://te.local:8027/move", json=body)
+        # Preferred: /arm/move. (Some older TE builds may also expose /move.)
+        try:
+            resp = await client.post("http://te.local:8027/arm/move", json=body)
+            resp.raise_for_status()
+        except Exception:
+            resp = await client.post("http://te.local:8027/move", json=body)
         resp.raise_for_status()
         return resp.json()
 
@@ -715,7 +721,12 @@ async def proxy_te_gripper(request: Request):
     import httpx
     body = await request.json()
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post("http://te.local:8027/gripper", json=body)
+        # Preferred: /arm/gripper. (Some older TE builds may also expose /gripper.)
+        try:
+            resp = await client.post("http://te.local:8027/arm/gripper", json=body)
+            resp.raise_for_status()
+        except Exception:
+            resp = await client.post("http://te.local:8027/gripper", json=body)
         resp.raise_for_status()
         return resp.json()
 
@@ -725,7 +736,8 @@ async def proxy_te_connect():
     """Proxy TE /connect through KOKORO."""
     import httpx
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post("http://te.local:8027/connect")
+        # TE uses /arm/enable (not /connect)
+        resp = await client.post("http://te.local:8027/arm/enable")
         resp.raise_for_status()
         return resp.json()
 
@@ -735,7 +747,8 @@ async def proxy_te_disconnect():
     """Proxy TE /disconnect through KOKORO."""
     import httpx
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post("http://te.local:8027/disconnect")
+        # TE uses /arm/disable (not /disconnect)
+        resp = await client.post("http://te.local:8027/arm/disable")
         resp.raise_for_status()
         return resp.json()
 
@@ -745,7 +758,8 @@ async def proxy_te_home():
     """Proxy TE /home through KOKORO."""
     import httpx
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post("http://te.local:8027/home")
+        # TE uses /arm/home (not /home)
+        resp = await client.post("http://te.local:8027/arm/home")
         resp.raise_for_status()
         return resp.json()
 
@@ -1092,66 +1106,91 @@ async def dashboard(request: Request):
         .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 2rem;
+            padding: 1.25rem 2rem 5rem 2rem; /* leave room for bottom stats pill */
         }
-        
+
+        /* Compact top brand bar (NODES view) */
         header {
-            text-align: center;
-            margin-bottom: 3rem;
-            padding: 2rem 0;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 12px;
+            margin-bottom: 1.25rem;
+            padding: 0.75rem 0;
             border-bottom: 1px solid var(--border);
         }
-        
+
+        .brand-mark {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            background: rgba(99, 102, 241, 0.10);
+            border: 1px solid rgba(99, 102, 241, 0.22);
+            color: rgba(235,238,255,0.9);
+            font-size: 1.05rem;
+            line-height: 1;
+            flex: 0 0 auto;
+        }
+
         .title-kanji {
             font-family: 'Noto Sans JP', sans-serif;
-            font-size: 4rem;
+            font-size: 2.0rem;
             font-weight: 300;
             color: var(--accent);
-            text-shadow: 0 0 30px var(--accent-glow);
-            margin-bottom: 0.5rem;
+            text-shadow: 0 0 24px var(--accent-glow);
+            margin: 0;
+            line-height: 1;
+            flex: 0 0 auto;
         }
-        
+
         h1 {
-            font-size: 1.5rem;
-            font-weight: 400;
-            letter-spacing: 0.3em;
+            font-size: 1.05rem;
+            font-weight: 500;
+            letter-spacing: 0.18em;
+            color: rgba(235,238,255,0.85);
+            margin: 0;
             text-transform: uppercase;
-            color: var(--text-secondary);
         }
-        
-        .summary {
-            display: flex;
-            justify-content: center;
-            gap: 3rem;
-            margin-bottom: 3rem;
-        }
-        
-        .stat {
-            text-align: center;
-        }
-        
-        .stat-value {
-            font-size: 2.5rem;
-            font-weight: 600;
-        }
-        
-        .stat-value.online { color: var(--online); }
-        .stat-value.offline { color: var(--offline); }
-        
-        .stat-label {
-            font-size: 0.75rem;
-            color: var(--text-secondary);
+
+        /* Remove big stat tiles; replace with a small bottom pill */
+        .summary { display: none; }
+
+        .cluster-mini-stats {
+            position: fixed;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: 14px;
+            z-index: 50;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(18, 18, 26, 0.78);
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 16px 40px rgba(0,0,0,0.45);
+            backdrop-filter: blur(10px);
+            color: rgba(235,238,255,0.75);
+            font-size: 0.78rem;
+            letter-spacing: 0.06em;
             text-transform: uppercase;
-            letter-spacing: 0.1em;
+            pointer-events: none;
         }
+        .cluster-mini-stats .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .cluster-mini-stats .dot.online { background: var(--online); box-shadow: 0 0 12px rgba(46, 204, 113, 0.35); }
+        .cluster-mini-stats .dot.offline { background: var(--offline); box-shadow: 0 0 12px rgba(231, 76, 60, 0.35); }
+        .cluster-mini-stats b { color: rgba(235,238,255,0.92); font-weight: 600; letter-spacing: 0.04em; }
         
-        .section-title {
-            margin: 2rem 0 1rem 0;
-            font-size: 1.2rem;
-            color: var(--text-secondary);
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 0.5rem;
-        }
+        /* (NODES view) Section titles are intentionally hidden to keep the UI tight */
+        .section-title { display: none; }
 
         /* Collapsible discovered services */
         details.discovered-panel {
@@ -1305,12 +1344,79 @@ async def dashboard(request: Request):
             color: var(--link-hover);
             background: rgba(52, 152, 219, 0.1);
         }
+
+        /* Compact status chips row (per-node key signals) */
+        .signal-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .signal-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            font-size: 0.72rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: rgba(235,238,255,0.72);
+        }
+        .signal-chip .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .signal-chip.online .dot { background: var(--online); box-shadow: 0 0 10px rgba(46,204,113,0.35); }
+        .signal-chip.offline .dot { background: var(--offline); box-shadow: 0 0 10px rgba(231,76,60,0.35); }
+        .signal-chip .val {
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 0.06em;
+            color: rgba(235,238,255,0.88);
+        }
         
         .node-details {
             margin-top: 1rem;
             padding-top: 1rem;
             border-top: 1px solid var(--border);
             font-size: 0.8rem;
+        }
+
+        /* Collapsible per-node hardware block (closed by default) */
+        details.node-hw {
+            margin-top: 1rem;
+            border-top: 1px solid var(--border);
+            padding-top: 0.6rem;
+        }
+        details.node-hw > summary {
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            user-select: none;
+            color: rgba(235,238,255,0.65);
+            font-size: 0.78rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            padding: 0.15rem 0;
+        }
+        details.node-hw > summary::-webkit-details-marker { display: none; }
+        details.node-hw > summary .chev {
+            opacity: 0.55;
+            transform: rotate(0deg);
+            transition: transform 0.15s ease, opacity 0.15s ease;
+        }
+        details.node-hw[open] > summary .chev { transform: rotate(90deg); opacity: 0.9; }
+        details.node-hw .node-details {
+            margin-top: 0.65rem;
+            padding-top: 0;
+            border-top: 0;
         }
         
         .detail-row {
@@ -1415,6 +1521,50 @@ async def dashboard(request: Request):
         .te-inline-name { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(235,238,255,0.62); }
         .te-inline-val { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: rgba(235,238,255,0.9); }
         .te-inline-servo input[type="range"] { width: 100%; }
+        
+        /* Violet slider styling */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: rgba(99, 102, 241, 0.2);
+            border-radius: 3px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #6366f1;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+            transition: all 0.2s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: #818cf8;
+            box-shadow: 0 0 12px rgba(99, 102, 241, 0.7);
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #6366f1;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+        }
+        input[type="range"]::-moz-range-track {
+            height: 6px;
+            background: rgba(99, 102, 241, 0.2);
+            border-radius: 3px;
+        }
+        input[type="range"]::-webkit-slider-runnable-track {
+            height: 6px;
+            background: linear-gradient(to right, #6366f1 0%, #6366f1 var(--value, 50%), rgba(99, 102, 241, 0.2) var(--value, 50%), rgba(99, 102, 241, 0.2) 100%);
+            border-radius: 3px;
+        }
         .te-inline-actions { display:flex; gap: 10px; margin-top: 10px; }
         .te-inline-btn {
             border: 1px solid var(--border);
@@ -2332,27 +2482,20 @@ async def dashboard(request: Request):
     <div id="nodes-view" class="nodes-view">
         <div class="container">
             <header>
+                <div class="brand-mark">⟁</div>
                 <div class="title-kanji">恕</div>
                 <h1>VOIGHT CLUSTER</h1>
             </header>
         
-        <div class="summary">
-            <div class="stat">
-                <div class="stat-value">""" + str(total_nodes) + """</div>
-                <div class="stat-label">Total Nodes</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value online">""" + str(online_count) + """</div>
-                <div class="stat-label">Online</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value offline">""" + str(offline_count) + """</div>
-                <div class="stat-label">Offline</div>
-            </div>
+        <div class="summary"></div>
+
+        <div class="cluster-mini-stats" aria-hidden="true">
+            <span class="dot online"></span><span>Online</span><b>""" + str(online_count) + """</b>
+            <span style="opacity:0.35;">·</span>
+            <span class="dot offline"></span><span>Offline</span><b>""" + str(offline_count) + """</b>
         </div>
         
-        <div class="section-title">Cluster Nodes</div>
-        <div class="nodes">
+        <div class="nodes" style="margin-top: 0.25rem;">
 """
     
     for node in cluster.nodes:
@@ -2378,7 +2521,48 @@ async def dashboard(request: Request):
         # TE controls are embedded directly in the TE node card below (no separate /te link)
         
         if node.online and node.status:
+            hw_html = ""
+
+            # --- Key signals row (node-specific, shown first) ---
+            signals_html = ""
+            try:
+                if node.name == "me":
+                    cam_connected = bool(node.status.get("camera", {}).get("connected", False))
+                    lidar_info = node.status.get("lidar", {}) or {}
+                    lidar_connected = bool(lidar_info.get("connected", False))
+                    lidar_points = int(lidar_info.get("point_count", 0) or 0)
+                    arm_cam_connected = bool(node.status.get("arm_camera", {}).get("connected", False))
+
+                    signals_html = f"""
+                <div class="signal-row">
+                    <div class="signal-chip {'online' if cam_connected else 'offline'}"><span class="dot"></span><span>SEE</span></div>
+                    <div class="signal-chip {'online' if lidar_connected else 'offline'}"><span class="dot"></span><span>LiDAR</span><span class="val">{lidar_points} pts</span></div>
+                    <div class="signal-chip {'online' if arm_cam_connected else 'offline'}"><span class="dot"></span><span>Arm POV</span></div>
+                </div>
+"""
+                elif node.name == "te":
+                    arm_connected = bool(node.status.get("arm", {}).get("connected", False))
+                    servos_enabled = bool(node.status.get("arm", {}).get("enabled", False))
+                    signals_html = f"""
+                <div class="signal-row">
+                    <div class="signal-chip {'online' if arm_connected else 'offline'}"><span class="dot"></span><span>Arduino</span></div>
+                    <div class="signal-chip {'online' if servos_enabled else 'offline'}"><span class="dot"></span><span>Servos</span><span class="val">{'EN' if servos_enabled else 'OFF'}</span></div>
+                </div>
+"""
+                elif node.name == "kokoro":
+                    vox_enabled = bool(node.status.get("voice_ui", {}).get("enabled", False))
+                    signals_html = f"""
+                <div class="signal-row">
+                    <div class="signal-chip {'online' if vox_enabled else 'offline'}"><span class="dot"></span><span>VOX</span></div>
+                </div>
+"""
+            except Exception:
+                signals_html = ""
+
+            if signals_html:
+                html += signals_html
             # Show some details if available
+            # Build hardware metrics accordion, but append it at the end (so key robot signals show first).
             if "hardware" in node.status:
                 hw = node.status["hardware"]
                 gpus = hw.get("gpus_detected", 0)
@@ -2392,8 +2576,10 @@ async def dashboard(request: Request):
                 
                 gpu_list = hw.get("gpus", [])
                 
-                html += f"""
-                <div class="node-details">
+                hw_html += f"""
+                <details class="node-hw">
+                    <summary><span>Metrics</span><span class="chev">›</span></summary>
+                    <div class="node-details">
                     <div class="detail-row">
                         <span class="detail-label">CPU</span>
                         <div style="display:flex; gap:10px; align-items:center">
@@ -2416,7 +2602,7 @@ async def dashboard(request: Request):
                         gpu_mem_used = gpu.get('memory_used_mb', 0)
                         gpu_mem_total = gpu.get('memory_total_mb', 0)
                         gpu_mem_pct = (gpu_mem_used / gpu_mem_total * 100) if gpu_mem_total > 0 else 0
-                        html += f"""
+                        hw_html += f"""
                     <div class="detail-row" style="padding-left: 1rem;">
                         <span class="detail-label" style="font-size:0.7rem;">GPU {i}</span>
                         <div style="display:flex; gap:8px; align-items:center; font-size:0.75rem;">
@@ -2426,7 +2612,7 @@ async def dashboard(request: Request):
 """
                     else:
                         # Empty placeholder row for alignment
-                        html += f"""
+                        hw_html += f"""
                     <div class="detail-row" style="padding-left: 1rem; opacity: 0.3;">
                         <span class="detail-label" style="font-size:0.7rem;">GPU {i}</span>
                         <div style="display:flex; gap:8px; align-items:center; font-size:0.75rem;">
@@ -2434,11 +2620,13 @@ async def dashboard(request: Request):
                         </div>
                     </div>
 """
-                html += """
-                </div>
+                hw_html += """
+                    </div>
+                </details>
 """
 
-            if "capabilities" in node.status:
+            # Capabilities: keep UI tight (hide for KOKORO + TE as requested)
+            if "capabilities" in node.status and node.name not in ("kokoro", "te"):
                 caps = node.status["capabilities"]
                 cap_list = [k for k, v in caps.items() if v]
                 # Always show 3 capability lines for visual alignment
@@ -2465,7 +2653,7 @@ async def dashboard(request: Request):
                 </div>
 """
             
-            # Show sensor status and feeds for ME node (3D Camera, Lidar)
+            # Show sensor feeds for ME node (SEE + LiDAR + Arm POV)
             if node.name == "me":
                 # Camera status from ME node
                 camera_connected = node.status.get("camera", {}).get("connected", False)
@@ -2481,25 +2669,17 @@ async def dashboard(request: Request):
                 lidar_class = "online" if lidar_connected else "offline"
                 
                 html += f"""
-                <div class="node-details">
-                    <div class="detail-row">
-                        <span class="detail-label">3D Camera</span>
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <div class="status-dot {cam_class}" style="width:8px;height:8px;"></div>
-                            <span>{"Connected" if camera_connected else "Disconnected"}</span>
-                            <span style="color: var(--text-secondary); font-size: 0.7rem;">{camera_res}</span>
+                <!-- LiDAR Visualization - Direct canvas (no iframe) -->
+                <div class="node-details" style="padding: 0.5rem 0.75rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="detail-label">LiDAR Scan</span>
+                            <span id="me-lidar-pts" style="color: #00d4ff; font-size: 0.7rem;">{lidar_points} pts</span>
                         </div>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">LiDAR</span>
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <div class="status-dot {lidar_class}" style="width:8px;height:8px;"></div>
-                            <span>{"Connected" if lidar_connected else "Disconnected"}</span>
-                            <span style="color: #00d4ff; font-size: 0.7rem;">{lidar_points} pts</span>
-                        </div>
+                        <canvas id="me-lidar-canvas" style="width: 100%; aspect-ratio: 1; min-height: 200px; border-radius: 12px; background: #0a0a0f;"></canvas>
                     </div>
                 </div>
-                
+
                 <!-- Stereo Camera Feed -->
                 <div class="node-details" style="padding-top: 0.5rem;">
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
@@ -2516,19 +2696,6 @@ async def dashboard(request: Request):
                                      onerror="this.style.display='none'; this.parentElement.classList.add('offline');">
                             </div>
                         </div>
-                    </div>
-                </div>
-                
-                <!-- LiDAR Visualization - Full width with rounded corners -->
-                <div class="node-details" style="padding: 0.5rem 0.75rem;">
-                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span class="detail-label">LiDAR Scan</span>
-                            <span style="color: #00d4ff; font-size: 0.7rem;">{lidar_points} pts</span>
-                        </div>
-                        <iframe src="/proxy/me/lidar/embed" 
-                                style="width: 100%; aspect-ratio: 1; min-height: 200px; border: none; border-radius: 12px; background: #0a0a0f;"
-                                title="LiDAR Visualization"></iframe>
                     </div>
                 </div>
                 
@@ -2554,19 +2721,19 @@ async def dashboard(request: Request):
             if node.name == "kokoro" and node.status.get("voice_ui", {}).get("enabled", False):
                 voice_url = node.status.get("voice_ui", {}).get("url", "http://kokoro.local:3000")
                 html += f"""
-                <div class="node-details">
+                <div class="node-details" style="padding: 0.5rem 0.75rem;">
                     <div class="detail-row" style="flex-direction: column; align-items: flex-start; gap: 0.5rem;">
                         <span class="detail-label">VOX</span>
                         
-                        <!-- Voice Visualizer Canvas -->
-                        <div id="zen-voice-container" style="width: 100%; height: 320px;
-                                background: linear-gradient(180deg, #0a0a0a 0%, #111 100%);
+                        <!-- Voice Visualizer Canvas (match LiDAR card geometry) -->
+                        <div id="zen-voice-container" style="width: 100%; aspect-ratio: 1; min-height: 200px;
+                                background: #0a0a0f;
                                 border-radius: 12px; border: 1px solid var(--border);
                                 padding: 0; position: relative; overflow: hidden;">
                             
                             <!-- Ambient glow effect -->
                             <div id="zen-glow" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                                    width: 360px; height: 360px; background: radial-gradient(circle, rgba(230,57,70,0.14) 0%, transparent 70%);
+                                    width: 340px; height: 340px; background: radial-gradient(circle, rgba(99,102,241,0.14) 0%, transparent 70%);
                                     border-radius: 50%; pointer-events: none; transition: all 0.3s;"></div>
                             
                             <!-- Main waveform canvas -->
@@ -2766,41 +2933,6 @@ async def dashboard(request: Request):
                 conn_class = "online" if arm_connected else "offline"
                 ena_class = "online" if arm_enabled else "offline"
                 
-                html += f"""
-                <div class="node-details">
-                    <div class="detail-row">
-                        <span class="detail-label">Arduino</span>
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <div class="status-dot {conn_class}" style="width:8px;height:8px;"></div>
-                            <span>{"Connected" if arm_connected else "Disconnected"}</span>
-                        </div>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Servos</span>
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <div class="status-dot {ena_class}" style="width:8px;height:8px;"></div>
-                            <span>{"Enabled" if arm_enabled else "Disabled"}</span>
-                        </div>
-                    </div>
-                </div>
-"""
-                # LiDAR status on TE (USB-connected)
-                if node.status.get("lidar") is not None:
-                    lidar_connected = bool(node.status.get("lidar", {}).get("connected", False))
-                    lidar_port = node.status.get("lidar", {}).get("port") or "—"
-                    lidar_class = "online" if lidar_connected else "offline"
-                    html += f"""
-                <div class="node-details" style="padding-top:0.5rem;">
-                    <div class="detail-row">
-                        <span class="detail-label">Lidar</span>
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <div class="status-dot {lidar_class}" style="width:8px;height:8px;"></div>
-                            <span>{"Connected" if lidar_connected else "Disconnected"}</span>
-                            <span style="color: var(--text-secondary); font-size: 0.75rem; margin-left: 6px;">{lidar_port}</span>
-                        </div>
-                    </div>
-                </div>
-"""
                 # Inline TE controls inside the TE node card: sliders are the live readout (no extra readout tiles)
                 html += """
                 <div class="node-details" style="padding-top:0.75rem;">
@@ -2905,7 +3037,15 @@ async def dashboard(request: Request):
             html += f"""
                 <div class="error-msg">{node.error}</div>
 """
-        
+
+        # Append deferred hardware metrics accordion last (keeps key robot signals/feeds first)
+        if node.online and node.status:
+            try:
+                if hw_html:
+                    html += hw_html
+            except Exception:
+                pass
+
         html += """
             </div>
 """
@@ -3352,6 +3492,88 @@ async def dashboard(request: Request):
         
         // Update every 500ms
         setInterval(updateTeArm, 500);
+        
+        // === ME LiDAR Visualization ===
+        (function() {
+            const canvas = document.getElementById('me-lidar-canvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const MAX_MM = 5000;
+            
+            function resizeCanvas() {
+                const rect = canvas.getBoundingClientRect();
+                const size = Math.min(rect.width, rect.height) * window.devicePixelRatio;
+                canvas.width = size;
+                canvas.height = size;
+            }
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            function drawLidar(scan) {
+                const W = canvas.width, H = canvas.height;
+                const cx = W/2, cy = H/2;
+                const maxR = Math.min(cx, cy) - 10;
+                const scale = maxR / MAX_MM;
+                
+                ctx.fillStyle = '#0a0a0f';
+                ctx.fillRect(0, 0, W, H);
+                
+                // Range rings
+                ctx.strokeStyle = '#1a1a24';
+                ctx.lineWidth = 1;
+                for (let r = 1000; r <= MAX_MM; r += 1000) {
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, r * scale, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                
+                // Crosshairs
+                ctx.beginPath();
+                ctx.moveTo(cx, 0); ctx.lineTo(cx, H);
+                ctx.moveTo(0, cy); ctx.lineTo(W, cy);
+                ctx.stroke();
+                
+                // Center dot
+                ctx.fillStyle = '#ff2d55';
+                ctx.beginPath();
+                ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Points
+                if (scan && scan.length > 0) {
+                    for (let i = 0; i < scan.length; i++) {
+                        const a = scan[i][0], d = scan[i][1];
+                        const rad = (a - 90) * Math.PI / 180;
+                        const x = cx + Math.cos(rad) * d * scale;
+                        const y = cy + Math.sin(rad) * d * scale;
+                        const t = Math.min(d / MAX_MM, 1);
+                        ctx.fillStyle = 'rgb(' + 
+                            Math.floor(255*(1-t)) + ',' + 
+                            Math.floor(45*(1-t) + 212*t) + ',' + 
+                            Math.floor(85*(1-t) + 255*t) + ')';
+                        ctx.beginPath();
+                        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+            
+            async function updateLidar() {
+                try {
+                    const r = await fetch('/proxy/me/lidar/data');
+                    const d = await r.json();
+                    drawLidar(d.scan || []);
+                    const pts = document.getElementById('me-lidar-pts');
+                    if (pts) pts.textContent = (d.point_count || 0) + ' pts';
+                } catch(e) { 
+                    drawLidar([]); 
+                }
+            }
+            
+            drawLidar([]);
+            updateLidar();
+            setInterval(updateLidar, 200);
+        })();
     </script>
     </div> <!-- Close nodes-view -->
     
@@ -3781,21 +4003,13 @@ async def dashboard(request: Request):
         
         // Initialize on page load
         (function initZen() {
-            // Start in kata (form) mode with DANWA view
+            // Default to NODES view (dashboard-first)
             const danwaView = document.getElementById('danwa-view');
             const nodesView = document.getElementById('nodes-view');
             
-            if (danwaView) {
-                // Initial setup for danwa view
-                danwaView.style.display = 'flex';
-                if (nodesView) nodesView.style.display = 'none';
-                
-                setZenState('idle');
-                setZenEmotion('calm');
-                initDanwaWaveform();
-                renderEyebrows();
-                applyZenStereo();
-            }
+            if (nodesView) nodesView.style.display = 'block';
+            if (danwaView) danwaView.style.display = 'none';
+            // Ensure DANWA anim only runs when opened by user
         })();
     </script>
 </body>

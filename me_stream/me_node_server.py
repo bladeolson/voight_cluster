@@ -13,6 +13,7 @@ Features:
 from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 import cv2
+import numpy as np
 import time
 import threading
 import base64
@@ -61,11 +62,12 @@ frame_time = 0
 camera_fail_count = 0
 
 # Arm Camera state (POV)
-arm_camera_lock = threading.Lock()
+arm_camera_lock = threading.RLock()
 arm_cap = None
 arm_frame = None
 arm_frame_time = 0
 arm_camera_connected = False
+arm_camera_fail_count = 0
 
 # LiDAR state
 lidar_lock = threading.Lock()
@@ -162,45 +164,118 @@ def camera_capture_loop():
 
 def find_arm_camera() -> bool:
     """Find and initialize the arm POV camera (Razer)."""
-    global arm_cap, arm_camera_connected
-    
-    with arm_camera_lock:
-        if arm_cap is not None:
-            arm_cap.release()
-        
-        arm_cap = cv2.VideoCapture(ARM_CAMERA_DEVICE)
-        if arm_cap.isOpened():
-            arm_cap.set(cv2.CAP_PROP_FRAME_WIDTH, ARM_CAMERA_WIDTH)
-            arm_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, ARM_CAMERA_HEIGHT)
-            arm_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    global arm_cap, arm_camera_connected, arm_camera_fail_count
+
+    # Important: do NOT call this while holding arm_camera_lock (or use an RLock),
+    # because it opens devices and can block.
+    try:
+        with arm_camera_lock:
+            if arm_cap is not None:
+                try:
+                    arm_cap.release()
+                except Exception:
+                    pass
+                arm_cap = None
+
+        # Force V4L2 backend on Linux for consistency
+        c = cv2.VideoCapture(ARM_CAMERA_DEVICE, cv2.CAP_V4L2)
+        if not c.isOpened():
+            try:
+                c.release()
+            except Exception:
+                pass
+            with arm_camera_lock:
+                arm_camera_connected = False
+            print(f"[ME] Arm camera not found at {ARM_CAMERA_DEVICE}")
+            return False
+
+        # Prefer MJPG (Razer supports 1280x720/60 and 1920x1080/30 via MJPG)
+        try:
+            c.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        except Exception:
+            pass
+        c.set(cv2.CAP_PROP_FRAME_WIDTH, ARM_CAMERA_WIDTH)
+        c.set(cv2.CAP_PROP_FRAME_HEIGHT, ARM_CAMERA_HEIGHT)
+        c.set(cv2.CAP_PROP_FPS, 30)
+        c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        # Warm up and verify we can actually read frames
+        ok = False
+        last = None
+        for _ in range(12):
+            ret, frame = c.read()
+            if ret and frame is not None and frame.size > 0:
+                ok = True
+                last = frame
+                break
+            time.sleep(0.05)
+
+        if not ok:
+            try:
+                c.release()
+            except Exception:
+                pass
+            with arm_camera_lock:
+                arm_cap = None
+                arm_camera_connected = False
+            print(f"[ME] Arm camera opened but no frames read: {ARM_CAMERA_DEVICE}")
+            return False
+
+        with arm_camera_lock:
+            arm_cap = c
             arm_camera_connected = True
-            print(f"[ME] Arm camera opened: {ARM_CAMERA_DEVICE}")
-            return True
-        
-        arm_camera_connected = False
-        print(f"[ME] Arm camera not found at {ARM_CAMERA_DEVICE}")
+            arm_camera_fail_count = 0
+            if last is not None:
+                # Seed a first frame so /stream/arm responds immediately
+                global arm_frame, arm_frame_time
+                arm_frame = last
+                arm_frame_time = time.time()
+
+        print(f"[ME] Arm camera opened: {ARM_CAMERA_DEVICE} ({ARM_CAMERA_WIDTH}x{ARM_CAMERA_HEIGHT})")
+        return True
+    except Exception as e:
+        with arm_camera_lock:
+            arm_camera_connected = False
+        print(f"[ME] Arm camera init error: {e}")
         return False
 
 
 def arm_camera_capture_loop():
     """Background thread for arm camera capture."""
-    global arm_cap, arm_frame, arm_frame_time, arm_camera_connected
-    
+    global arm_cap, arm_frame, arm_frame_time, arm_camera_connected, arm_camera_fail_count
+
     while True:
-        with arm_camera_lock:
-            if arm_cap is None or not arm_cap.isOpened():
-                find_arm_camera()
-                time.sleep(1)
-                continue
-            
+        # Avoid deadlock: don't hold the lock while calling find_arm_camera()
+        if arm_cap is None or (hasattr(arm_cap, "isOpened") and not arm_cap.isOpened()):
+            find_arm_camera()
+            time.sleep(0.5)
+            continue
+
+        try:
             ret, frame = arm_cap.read()
-            if ret:
-                arm_frame = frame.copy()
+        except Exception:
+            ret, frame = False, None
+
+        if ret and frame is not None and frame.size > 0:
+            with arm_camera_lock:
+                arm_frame = frame
                 arm_frame_time = time.time()
                 arm_camera_connected = True
-            else:
+                arm_camera_fail_count = 0
+        else:
+            with arm_camera_lock:
                 arm_camera_connected = False
-        
+                arm_camera_fail_count += 1
+                if arm_camera_fail_count >= 15:
+                    # Reinitialize after repeated failures
+                    try:
+                        if arm_cap is not None:
+                            arm_cap.release()
+                    except Exception:
+                        pass
+                    arm_cap = None
+                    arm_camera_fail_count = 0
+
         time.sleep(0.033)  # ~30fps
 
 
@@ -416,13 +491,49 @@ def snapshot_right():
 
 def generate_arm_frames():
     """Generate arm camera frames for MJPEG stream."""
+    def make_placeholder(w: int, h: int) -> np.ndarray:
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        # subtle vignette
+        cv2.rectangle(img, (0, 0), (w - 1, h - 1), (26, 26, 36), 2)
+        cv2.putText(
+            img,
+            "ARM POV OFFLINE",
+            (int(w * 0.12), int(h * 0.55)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (160, 160, 180),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            img,
+            ARM_CAMERA_DEVICE,
+            (int(w * 0.12), int(h * 0.70)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (120, 120, 140),
+            2,
+            cv2.LINE_AA,
+        )
+        return img
+
     while True:
-        if arm_frame is not None:
-            ok, buffer = cv2.imencode('.jpg', arm_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            if ok:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        time.sleep(0.033)
+        with arm_camera_lock:
+            frame = arm_frame.copy() if arm_frame is not None else None
+            last = arm_frame_time
+            connected = arm_camera_connected
+
+        # If we haven't received frames recently, show a placeholder so clients don't hang forever.
+        if frame is None or (time.time() - last) > 2.0 or (not connected):
+            frame = make_placeholder(ARM_CAMERA_WIDTH, ARM_CAMERA_HEIGHT)
+
+        ok, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if ok:
+            yield (
+                b'--frame\r\n'
+                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n'
+            )
+        time.sleep(0.10)
 
 
 @app.route('/stream/arm')
