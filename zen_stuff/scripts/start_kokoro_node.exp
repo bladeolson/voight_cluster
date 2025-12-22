@@ -1,12 +1,12 @@
 #!/usr/bin/expect -f
-# Start ME node service
+# Start KOKORO node service
 # NOTE: Requires passwordless SSH (run setup_ssh.sh first) or will prompt for password
 set timeout 30
-set host "me.local"
+set host "kokoro.local"
 set user "bladeolson"
 
 # Try passwordless first
-spawn ssh -o BatchMode=yes -o ConnectTimeout=10 $user@$host "sudo systemctl start zen-me-node && sudo systemctl enable zen-me-node && systemctl status zen-me-node"
+spawn ssh -o BatchMode=yes -o ConnectTimeout=10 $user@$host "sudo systemctl start zen-kokoro-node && sudo systemctl enable zen-kokoro-node && systemctl status zen-kokoro-node"
 expect {
     eof {
         # Check exit status
@@ -27,7 +27,7 @@ set password $expect_out(1,string)
 stty echo
 send_user "\n"
 
-spawn ssh -o StrictHostKeyChecking=no $user@$host "echo $password | sudo -S systemctl start zen-me-node && echo $password | sudo -S systemctl enable zen-me-node"
+spawn ssh -o StrictHostKeyChecking=no $user@$host "echo $password | sudo -S systemctl start zen-kokoro-node && echo $password | sudo -S systemctl enable zen-kokoro-node"
 expect {
     "password for" {
         send "$password\r"

@@ -1,32 +1,108 @@
-# Zen KOKORO Node (心)
+# VOIGHT CLUSTER - Zen Management
 
-**Orchestration node for the VOIGHT CLUSTER.**
+**Orchestration and management tools for the VOIGHT CLUSTER.**
 
-| Property | Value |
-|----------|-------|
-| Node Name | KOKORO |
-| Kanji | 心 (heart/mind) |
-| Hostname | `kokoro.local` |
-| Port | `8025` |
-| Role | Orchestration / Dashboard / Coordination |
-
-## Overview
-
-The KOKORO node is the "heart" of the VOIGHT CLUSTER. Its responsibilities include:
-
-- **Dashboard**: Web UI to monitor all nodes in real-time
-- **Cluster Monitor**: Query all nodes for their status
-- **Job Dispatch**: Send compute jobs to worker nodes (ME, TE)
-- **Coordination**: Central point for cluster management
-
-## Cluster Context
+## Cluster Overview
 
 ```
+╔═══════════════════════════════════════════════════════════════╗
+║              VOIGHT CLUSTER - Node Topology                   ║
+║                   心 → 目 → 手                                 ║
+╚═══════════════════════════════════════════════════════════════╝
+
 KOKORO (心) ──── ME (目) ──── TE (手)
  orchestrate      vision       robot arm
-   :8025          :8026         :8027
+   :8025          :8028         :8027
      ★
 ```
+
+| Node | Kanji | Hostname | IP (fallback) | Port | Role |
+|------|-------|----------|---------------|------|------|
+| KOKORO | 心 | `kokoro.local` | localhost | 8025 | Orchestration |
+| ME | 目 | `me.local` | 10.0.0.30 | 8028 | Vision & LiDAR |
+| TE | 手 | `te.local` | 10.0.0.242 | 8027 | Robot Arm |
+
+---
+
+## Quick Start: SSH Setup
+
+Before managing remote nodes, you need passwordless SSH access.
+
+### 1. Run the SSH Setup Script
+
+```bash
+cd zen_stuff
+./setup_ssh.sh
+```
+
+This will:
+- Generate an SSH key if you don't have one
+- Copy your SSH key to ME and TE nodes
+- Test connectivity
+
+### 2. Test Connections
+
+```bash
+./setup_ssh.sh test
+```
+
+### 3. Setup Individual Nodes
+
+```bash
+./setup_ssh.sh me    # Setup ME node only
+./setup_ssh.sh te    # Setup TE node only
+```
+
+---
+
+## Cluster Management
+
+### Using voight_ctl.py (Recommended)
+
+```bash
+# Check cluster status
+./voight_ctl.py status
+
+# Full health check
+./voight_ctl.py health
+
+# Restart nodes
+./voight_ctl.py restart all
+./voight_ctl.py restart me
+./voight_ctl.py restart te
+
+# View logs
+./voight_ctl.py logs me 100
+
+# SSH into a node
+./voight_ctl.py ssh me
+./voight_ctl.py ssh te
+
+# Deploy updates
+./voight_ctl.py deploy me
+```
+
+### Using Legacy Expect Scripts
+
+Individual node scripts are in `scripts/`:
+
+```bash
+# ME Node
+./scripts/start_me_node.exp
+./scripts/recover_me_node.exp
+./scripts/copy_ssh_key_me.exp
+
+# TE Node
+./scripts/start_te_node.exp
+./scripts/recover_te_node.exp
+./scripts/copy_ssh_key_te.exp
+```
+
+---
+
+## Node Details
+
+### KOKORO (心) - Orchestrator
 
 ## Setup
 

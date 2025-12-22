@@ -1,19 +1,46 @@
 #!/usr/bin/expect -f
-set timeout 10
-set host "10.0.0.30"
+# Update ME node camera resolution and restart service
+# NOTE: Requires passwordless SSH (run setup_ssh.sh first)
+set timeout 30
+set host "me.local"
 set user "bladeolson"
-set password "Laser26!"
+set alt_host "10.0.0.30"
 set remote_file "/home/bladeolson/Documents/zen_me_node/zen_me_server.py"
 
-# Escape the content for use in sed/expect
+# New resolution settings
 set new_width "2560"
 set new_height "960"
 
-spawn ssh -o StrictHostKeyChecking=no $user@$host "sed -i 's/cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)/cap.set(cv2.CAP_PROP_FRAME_WIDTH, $new_width)/' $remote_file && sed -i 's/cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)/cap.set(cv2.CAP_PROP_FRAME_HEIGHT, $new_height)/' $remote_file && echo $password | sudo -S systemctl restart zen-me-node"
+# Build the update command
+set update_cmd "sed -i 's/cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)/cap.set(cv2.CAP_PROP_FRAME_WIDTH, $new_width)/' $remote_file && sed -i 's/cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)/cap.set(cv2.CAP_PROP_FRAME_HEIGHT, $new_height)/' $remote_file && sudo systemctl restart zen-me-node && echo 'Camera resolution updated to ${new_width}x${new_height}'"
+
+# Try passwordless SSH first
+spawn ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no $user@$host $update_cmd
 expect {
-    "password for" {
-        send "$password\r"
+    eof {
+        catch wait result
+        set exit_code [lindex $result 3]
+        if {$exit_code == 0} {
+            puts "\n✓ Camera resolution updated successfully"
+            exit 0
+        }
     }
 }
-expect eof
+
+# Try alternate IP
+puts "Trying alternate IP ($alt_host)..."
+spawn ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no $user@$alt_host $update_cmd
+expect {
+    eof {
+        catch wait result
+        set exit_code [lindex $result 3]
+        if {$exit_code == 0} {
+            puts "\n✓ Camera resolution updated successfully (via IP)"
+            exit 0
+        }
+    }
+}
+
+puts "ERROR: Could not connect to ME node. Run setup_ssh.sh to configure passwordless SSH."
+exit 1
 

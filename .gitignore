@@ -27,6 +27,12 @@ Thumbs.db
 *.log
 /tmp/
 
+# Generated / scratch assets (keep repo clean)
+zen_stuff/scripts/*.png
+zen_stuff/scripts/*.pdf.png
+zen_stuff/scripts/*_300dpi.png
+zen_stuff/scripts/*.pdf
+
 # Local config
 .env
 *.local

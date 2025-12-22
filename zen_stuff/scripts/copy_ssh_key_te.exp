@@ -1,8 +1,8 @@
 #!/usr/bin/expect -f
-# Copy SSH key to ME node for passwordless access
+# Copy SSH key to TE node for passwordless access
 # NOTE: Consider using setup_ssh.sh instead for better security
 set timeout 30
-set host "me.local"
+set host "te.local"
 set user "bladeolson"
 
 # Prompt for password instead of hardcoding

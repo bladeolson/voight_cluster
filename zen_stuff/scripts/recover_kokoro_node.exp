@@ -1,20 +1,20 @@
 #!/usr/bin/expect -f
-# Recover ME node service (restart if crashed)
+# Recover KOKORO node service (restart if crashed)
 # NOTE: Requires passwordless SSH (run setup_ssh.sh first) or will prompt for password
 set timeout 30
-set host "me.local"
+set host "kokoro.local"
 set user "bladeolson"
 # Fallback IP if hostname doesn't resolve
-set alt_host "10.0.0.30"
+set alt_host "10.0.0.205"
 
 # Try hostname first with passwordless SSH
-spawn ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no $user@$host "sudo systemctl restart zen-me-node && systemctl status zen-me-node"
+spawn ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no $user@$host "sudo systemctl restart zen-kokoro-node && systemctl status zen-kokoro-node"
 expect {
     eof {
         catch wait result
         set exit_code [lindex $result 3]
         if {$exit_code == 0} {
-            puts "\n✓ ME node recovered successfully"
+            puts "\n✓ KOKORO node recovered successfully"
             exit 0
         }
     }
@@ -22,13 +22,13 @@ expect {
 
 # Try alternate IP
 puts "Trying alternate IP ($alt_host)..."
-spawn ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no $user@$alt_host "sudo systemctl restart zen-me-node && systemctl status zen-me-node"
+spawn ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no $user@$alt_host "sudo systemctl restart zen-kokoro-node && systemctl status zen-kokoro-node"
 expect {
     eof {
         catch wait result
         set exit_code [lindex $result 3]
         if {$exit_code == 0} {
-            puts "\n✓ ME node recovered successfully (via IP)"
+            puts "\n✓ KOKORO node recovered successfully (via IP)"
             exit 0
         }
     }
@@ -43,7 +43,7 @@ set password $expect_out(1,string)
 stty echo
 send_user "\n"
 
-spawn ssh -o StrictHostKeyChecking=no $user@$host "echo $password | sudo -S systemctl restart zen-me-node"
+spawn ssh -o StrictHostKeyChecking=no $user@$host "echo $password | sudo -S systemctl restart zen-kokoro-node"
 expect {
     "password for" {
         send "$password\r"
