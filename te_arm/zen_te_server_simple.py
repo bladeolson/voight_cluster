@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Zen TE Node Server - Simplified Control (手)
-=============================================
-Simple control for BASE servo and DC motor on MOTOR2 (M2).
+Zen TE Node Server - 6 Servo Arm Control (手)
+==============================================
+Controls 6 servos on A0-A5 + DC motor on M3
 
 Hardware:
-- BASE servo: PWM servo on Arduino (channel 0)
-- M2 DC motor: DC motor on the OSEPP TB6612 shield MOTOR2 terminals
+- A0: Base       A1: Shoulder    A2: Elbow
+- A3: Wrist Bend A4: Wrist Swivel A5: Pincher
+- M3: DC Motor (D6/D4/D9)
 
 Port: 8027
 """
@@ -21,7 +22,6 @@ from typing import Optional
 import psutil
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
 
 try:
     import serial
@@ -30,140 +30,65 @@ except ImportError:
     serial = None
     SERIAL_AVAILABLE = False
 
-app = FastAPI(
-    title="Zen TE Node - Simple",
-    description="BASE servo + Stepper M2 control (手)",
-    version="0.3.0",
-)
+app = FastAPI(title="Zen TE Arm", description="6-Servo Arm Control (手)", version="0.4.0")
 
-# Serial config
 SERIAL_BAUD = 115200
+STEP_DEG = 10
+M3_PWM = 120
+M3_MS = 150
 
-# Current state
+# Connection state
 arduino_connection = None
 connected_port: Optional[str] = None
+last_response: Optional[dict] = None
+last_error: Optional[str] = None
 
-# BASE servo state (0-180 degrees)
-base_angle = 90
-
-# DC Motor M2 state (last pulse)
-m2_last: dict = {"dir": 0, "pwm": 0, "ms": 0}
-
-# Debug / diagnostics
-last_arduino_response: Optional[dict] = None
-last_arduino_error: Optional[str] = None
-last_arduino_ts: Optional[float] = None
-
-# Movement settings
-BASE_STEP = 5        # degrees per click
-# Motor pulse settings (safe, short)
-M2_PWM = 120
-M2_MS = 120
+# Servo state (6 arm + 1 head)
+SERVO_NAMES = ["base", "shoulder", "elbow", "wrist_bend", "wrist_swivel", "pincher", "head_pan"]
+servo_angles = {name: 90 for name in SERVO_NAMES}
+m3_last = {"dir": 0, "pwm": 0, "ms": 0}
 
 
 # =============================================================================
 # Serial Communication
 # =============================================================================
 
-def find_arduino_ports() -> list[str]:
-    """Find available serial ports."""
-    patterns = ["/dev/ttyUSB*", "/dev/ttyACM*", "/dev/tty.usbserial*", "/dev/tty.usbmodem*"]
+def find_ports():
     ports = []
-    for pat in patterns:
+    for pat in ["/dev/ttyUSB*", "/dev/ttyACM*"]:
         ports.extend(glob.glob(pat))
     return sorted(set(ports))
 
 
-def _port_sort_key(p: str) -> tuple[int, str]:
-    """
-    Prefer the newest ttyUSB/ttyACM number (Linux tends to bump numbers on replug),
-    otherwise fall back to lexicographic.
-    """
-    m = re.search(r"(ttyUSB|ttyACM)(\d+)$", p)
-    if not m:
-        return (-1, p)
-    return (int(m.group(2)), p)
-
-
-def choose_default_port(ports: list[str]) -> Optional[str]:
-    """Choose best default port from discovered ports."""
-    if not ports:
-        return None
-    # Prefer highest index for ttyUSB/ttyACM to handle replug (ttyUSB1 -> ttyUSB2)
-    return sorted(ports, key=_port_sort_key, reverse=True)[0]
-
-
-def is_connected() -> bool:
-    """Check if Arduino is connected."""
+def is_connected():
     try:
-        # If the port disappeared (replug), consider disconnected.
         if connected_port and not os.path.exists(connected_port):
             return False
         return arduino_connection is not None and arduino_connection.is_open
-    except Exception:
+    except:
         return False
 
 
-def ensure_connection_ok() -> None:
-    """If we have a stale connection (port gone), tear it down so /connect can recover."""
-    global arduino_connection, connected_port
-    if connected_port and not os.path.exists(connected_port):
-        try:
-            if arduino_connection:
-                arduino_connection.close()
-        except Exception:
-            pass
-        arduino_connection = None
-        connected_port = None
-
-
 def send_command(cmd: dict) -> Optional[dict]:
-    """Send JSON command to Arduino and read response."""
-    global arduino_connection, last_arduino_response, last_arduino_error, last_arduino_ts
+    global last_response, last_error
     if not is_connected():
-        last_arduino_error = "not connected"
-        last_arduino_ts = time.time()
+        last_error = "not connected"
         return None
-    
     try:
         line = json.dumps(cmd, separators=(",", ":")) + "\n"
-        arduino_connection.write(line.encode("utf-8"))
+        arduino_connection.write(line.encode())
         arduino_connection.flush()
-        
-        # Read response
         time.sleep(0.05)
-        raw = arduino_connection.readline().decode("utf-8", errors="ignore").strip()
+        raw = arduino_connection.readline().decode(errors="ignore").strip()
         if raw.startswith("{"):
             resp = json.loads(raw)
-            last_arduino_response = resp
-            last_arduino_error = None
-            last_arduino_ts = time.time()
+            last_response = resp
+            last_error = None
             return resp
-        # No JSON response is still useful to record
-        last_arduino_response = None
-        last_arduino_error = f"no json response (raw={raw[:120]!r})" if raw else "no response"
-        last_arduino_ts = time.time()
+        last_error = f"no json: {raw[:80]}" if raw else "no response"
     except Exception as e:
-        last_arduino_response = None
-        last_arduino_error = f"serial error: {e}"
-        last_arduino_ts = time.time()
-        print(f"Serial error: {e}")
-    
+        last_error = str(e)
     return None
-
-
-# =============================================================================
-# Pydantic Models
-# =============================================================================
-
-class MoveCommand(BaseModel):
-    direction: str  # "left" or "right"
-    steps: int = 1  # number of step increments
-
-
-class StepperCommand(BaseModel):
-    direction: str  # "left" or "right" (or "cw" / "ccw")
-    steps: int = 10  # number of motor steps
 
 
 # =============================================================================
@@ -172,225 +97,136 @@ class StepperCommand(BaseModel):
 
 @app.get("/")
 def root():
-    """Root endpoint."""
-    return {
-        "node": "te",
-        "kanji": "手",
-        "mode": "simple",
-        "endpoints": ["/status", "/dashboard", "/base/left", "/base/right", "/stepper/left", "/stepper/right"],
-    }
+    return {"node": "te", "kanji": "手", "servos": SERVO_NAMES, "version": "0.4.0"}
 
 
 @app.get("/status")
 def status():
-    """Node status."""
-    ensure_connection_ok()
-    ports = find_arduino_ports()
-    mem = psutil.virtual_memory()
-    
     return {
         "node": "te",
-        "kanji": "手",
-        "role": "limbs",
-        "mode": "simple",
         "connected": is_connected(),
         "port": connected_port,
-        "base_angle": base_angle,
-        "m2_last": m2_last,
-        "arduino": {
-            "last_response": last_arduino_response,
-            "last_error": last_arduino_error,
-            "last_ts": last_arduino_ts,
-        },
+        "servos": servo_angles,
+        "m3_last": m3_last,
+        "last_response": last_response,
+        "last_error": last_error,
         "hardware": {
             "cpu_percent": psutil.cpu_percent(interval=None),
-            "ram_used_gb": round(mem.used / (1024**3), 1),
-            "ram_total_gb": round(mem.total / (1024**3), 1),
-            "serial_ports": ports,
+            "ram_gb": round(psutil.virtual_memory().used / (1024**3), 1),
+            "serial_ports": find_ports(),
         },
-        "version": "0.3.0",
     }
 
 
 @app.post("/connect")
 def connect(port: str = None):
-    """Connect to Arduino."""
     global arduino_connection, connected_port
-    
     if not SERIAL_AVAILABLE:
-        raise HTTPException(status_code=500, detail="pyserial not installed")
+        raise HTTPException(500, "pyserial not installed")
     
-    ports = find_arduino_ports()
+    ports = find_ports()
     if port is None:
         if not ports:
-            raise HTTPException(status_code=404, detail="No Arduino found")
-        port = choose_default_port(ports)
-        if port is None:
-            raise HTTPException(status_code=404, detail="No Arduino found")
+            raise HTTPException(404, "No Arduino found")
+        port = sorted(ports, key=lambda p: int(re.search(r"(\d+)$", p).group(1)) if re.search(r"(\d+)$", p) else 0, reverse=True)[0]
     
     try:
         if arduino_connection:
             arduino_connection.close()
-        
         arduino_connection = serial.Serial(port, SERIAL_BAUD, timeout=1)
         connected_port = port
-        time.sleep(2.0)  # Wait for Arduino reset
+        time.sleep(2.0)
         arduino_connection.reset_input_buffer()
-        # Prime a status request so we know comms are alive
         send_command({"cmd": "status"})
-        
         return {"success": True, "port": port}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(500, str(e))
 
 
 @app.post("/disconnect")
 def disconnect():
-    """Disconnect from Arduino."""
     global arduino_connection, connected_port
-    
     if arduino_connection:
         arduino_connection.close()
         arduino_connection = None
         connected_port = None
-    
     return {"success": True}
 
 
-# -----------------------------------------------------------------------------
-# BASE Servo Control
-# -----------------------------------------------------------------------------
+# =============================================================================
+# Servo Control - Generic endpoints for all 6 servos
+# =============================================================================
 
-@app.post("/base/left")
-def base_left(steps: int = 1):
-    """Move BASE servo left (decrease angle)."""
-    global base_angle
-    
-    new_angle = max(0, base_angle - (BASE_STEP * steps))
-    base_angle = new_angle
-    
+def _move_servo(name: str, angle: int):
+    if name not in SERVO_NAMES:
+        raise HTTPException(400, f"Unknown servo: {name}")
+    angle = max(0, min(180, angle))
+    servo_angles[name] = angle
     if is_connected():
-        # New firmware command
-        send_command({"cmd": "base", "angle": base_angle})
-    
-    return {"success": True, "base_angle": base_angle, "direction": "left"}
+        send_command({"cmd": name, "angle": angle})
+    return {"success": True, "servo": name, "angle": angle}
 
 
-@app.post("/base/right")
-def base_right(steps: int = 1):
-    """Move BASE servo right (increase angle)."""
-    global base_angle
-    
-    new_angle = min(180, base_angle + (BASE_STEP * steps))
-    base_angle = new_angle
-    
+@app.post("/servo/{name}/set")
+def servo_set(name: str, angle: int):
+    return _move_servo(name, angle)
+
+
+@app.post("/servo/{name}/left")
+def servo_left(name: str, steps: int = 1):
+    if name not in SERVO_NAMES:
+        raise HTTPException(400, f"Unknown servo: {name}")
+    return _move_servo(name, servo_angles[name] - (STEP_DEG * steps))
+
+
+@app.post("/servo/{name}/right")
+def servo_right(name: str, steps: int = 1):
+    if name not in SERVO_NAMES:
+        raise HTTPException(400, f"Unknown servo: {name}")
+    return _move_servo(name, servo_angles[name] + (STEP_DEG * steps))
+
+
+@app.post("/servo/{name}/center")
+def servo_center(name: str):
+    return _move_servo(name, 90)
+
+
+@app.post("/home")
+def home_all():
     if is_connected():
-        send_command({"cmd": "base", "angle": base_angle})
-    
-    return {"success": True, "base_angle": base_angle, "direction": "right"}
+        send_command({"cmd": "home"})
+    for name in SERVO_NAMES:
+        servo_angles[name] = 90
+    return {"success": True, "servos": servo_angles}
 
 
-@app.post("/base/set")
-def base_set(angle: int):
-    """Set BASE servo to specific angle."""
-    global base_angle
-    
-    base_angle = max(0, min(180, angle))
-    
+# =============================================================================
+# Motor Control
+# =============================================================================
+
+@app.post("/motor/left")
+def motor_left():
+    global m3_last
     if is_connected():
-        send_command({"cmd": "base", "angle": base_angle})
-    
-    return {"success": True, "base_angle": base_angle}
+        send_command({"cmd": "m2", "dir": -1, "pwm": M3_PWM, "ms": M3_MS})
+    m3_last = {"dir": -1, "pwm": M3_PWM, "ms": M3_MS}
+    return {"success": True, "direction": "left"}
 
 
-@app.post("/base/center")
-def base_center():
-    """Center BASE servo (90 degrees)."""
-    global base_angle
-    base_angle = 90
-    
+@app.post("/motor/right")
+def motor_right():
+    global m3_last
     if is_connected():
-        send_command({"cmd": "base", "angle": 90})
-    
-    return {"success": True, "base_angle": base_angle}
+        send_command({"cmd": "m2", "dir": 1, "pwm": M3_PWM, "ms": M3_MS})
+    m3_last = {"dir": 1, "pwm": M3_PWM, "ms": M3_MS}
+    return {"success": True, "direction": "right"}
 
 
-@app.post("/base/sweep")
-def base_sweep():
-    """
-    Debug: do an obvious sweep so you can visually confirm motion.
-    0 -> 180 -> 90
-    """
-    global base_angle
-    if is_connected():
-        send_command({"cmd": "base", "angle": 0})
-        time.sleep(1.2)
-        send_command({"cmd": "base", "angle": 180})
-        time.sleep(1.2)
-        send_command({"cmd": "base", "angle": 90})
-        base_angle = 90
-        return {"success": True, "base_angle": base_angle, "note": "sweep complete"}
-    return {"success": False, "base_angle": base_angle, "note": "not connected"}
-
-
-# -----------------------------------------------------------------------------
-# Stepper Motor M2 Control
-# -----------------------------------------------------------------------------
-
-@app.post("/stepper/left")
-def stepper_left(steps: int = None):
-    """Run DC motor on M2 left (dir=-1) for a short pulse."""
-    global m2_last
-    if is_connected():
-        send_command({"cmd": "m2", "dir": -1, "pwm": M2_PWM, "ms": M2_MS})
-    m2_last = {"dir": -1, "pwm": M2_PWM, "ms": M2_MS}
-    return {"success": True, "direction": "left", "pwm": M2_PWM, "ms": M2_MS}
-
-
-@app.post("/stepper/right")
-def stepper_right(steps: int = None):
-    """Run DC motor on M2 right (dir=+1) for a short pulse."""
-    global m2_last
-    if is_connected():
-        send_command({"cmd": "m2", "dir": 1, "pwm": M2_PWM, "ms": M2_MS})
-    m2_last = {"dir": 1, "pwm": M2_PWM, "ms": M2_MS}
-    return {"success": True, "direction": "right", "pwm": M2_PWM, "ms": M2_MS}
-
-
-@app.post("/stepper/stop")
-def stepper_stop():
-    """Stop DC motor M2."""
+@app.post("/motor/stop")
+def motor_stop():
     if is_connected():
         send_command({"cmd": "m2_stop"})
-    return {"success": True, "message": "M2 stopped"}
-
-
-# -------------------------------------------------------------------------
-# Diagnostic: MOTOR1 (in case your DC motor is wired to MOTOR1 terminals)
-# -------------------------------------------------------------------------
-
-@app.post("/m1/left")
-def m1_left():
-    """Run DC motor on MOTOR1 left (dir=-1) for a short pulse."""
-    if is_connected():
-        send_command({"cmd": "m1", "dir": -1, "pwm": M2_PWM, "ms": M2_MS})
-    return {"success": True, "direction": "left", "pwm": M2_PWM, "ms": M2_MS}
-
-
-@app.post("/m1/right")
-def m1_right():
-    """Run DC motor on MOTOR1 right (dir=+1) for a short pulse."""
-    if is_connected():
-        send_command({"cmd": "m1", "dir": 1, "pwm": M2_PWM, "ms": M2_MS})
-    return {"success": True, "direction": "right", "pwm": M2_PWM, "ms": M2_MS}
-
-
-@app.post("/m1/stop")
-def m1_stop():
-    """Stop DC motor on MOTOR1."""
-    if is_connected():
-        send_command({"cmd": "m1_stop"})
-    return {"success": True, "message": "M1 stopped"}
+    return {"success": True}
 
 
 # =============================================================================
@@ -399,395 +235,144 @@ def m1_stop():
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
-    """Simple control dashboard."""
-    
-    html = f"""
+    return HTMLResponse(content="""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TE Control - 手</title>
+    <title>TE Arm - 手</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap');
-        
-        :root {{
-            --bg: #0d0d12;
-            --card: #16161d;
-            --accent: #ff3366;
-            --accent2: #00ccff;
-            --text: #f0f0f5;
-            --dim: #5a5a6e;
-            --success: #00dd77;
-            --border: #2a2a35;
-        }}
-        
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        
-        body {{
-            font-family: 'Space Grotesk', sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 2rem;
-        }}
-        
-        header {{
-            text-align: center;
-            margin-bottom: 2rem;
-        }}
-        
-        .kanji {{
-            font-size: 5rem;
-            color: var(--accent);
-            text-shadow: 0 0 40px var(--accent);
-            line-height: 1;
-        }}
-        
-        h1 {{
-            font-size: 1.2rem;
-            font-weight: 400;
-            color: var(--dim);
-            letter-spacing: 0.3em;
-            margin-top: 0.5rem;
-        }}
-        
-        .status {{
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 2rem;
-            font-size: 0.85rem;
-        }}
-        
-        .status-item {{
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            background: var(--card);
-            border-radius: 20px;
-            border: 1px solid var(--border);
-        }}
-        
-        .dot {{
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: var(--dim);
-        }}
-        
-        .dot.online {{
-            background: var(--success);
-            box-shadow: 0 0 10px var(--success);
-        }}
-        
-        .controls {{
-            display: flex;
-            flex-direction: column;
-            gap: 2rem;
-            width: 100%;
-            max-width: 500px;
-        }}
-        
-        .control-group {{
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 1.5rem;
-        }}
-        
-        .control-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1.5rem;
-        }}
-        
-        .control-title {{
-            font-size: 1rem;
-            font-weight: 600;
-            color: var(--accent2);
-            letter-spacing: 0.1em;
-        }}
-        
-        .control-value {{
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--text);
-        }}
-        
-        .button-row {{
-            display: flex;
-            gap: 1rem;
-        }}
-        
-        .btn {{
-            flex: 1;
-            padding: 1.2rem 1rem;
-            border: 2px solid var(--border);
-            border-radius: 12px;
-            background: transparent;
-            color: var(--text);
-            font-family: inherit;
-            font-size: 1.5rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.15s ease;
-            user-select: none;
-        }}
-        
-        .btn:hover {{
-            background: var(--accent);
-            border-color: var(--accent);
-            transform: scale(1.02);
-        }}
-        
-        .btn:active {{
-            transform: scale(0.98);
-        }}
-        
-        .btn.center {{
-            flex: 0.5;
-            font-size: 0.9rem;
-            padding: 1rem;
-        }}
-        
-        .btn.center:hover {{
-            background: var(--accent2);
-            border-color: var(--accent2);
-        }}
-        
-        .btn.connect {{
-            background: var(--success);
-            border-color: var(--success);
-            color: #000;
-        }}
-        
-        .connection-bar {{
-            display: flex;
-            gap: 0.5rem;
-            margin-top: 2rem;
-        }}
-        
-        .connection-bar .btn {{
-            font-size: 0.9rem;
-            padding: 0.8rem;
-        }}
-        
-        #log {{
-            margin-top: 2rem;
-            padding: 1rem;
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-family: monospace;
-            font-size: 0.8rem;
-            color: var(--dim);
-            max-height: 100px;
-            overflow-y: auto;
-            width: 100%;
-            max-width: 500px;
-        }}
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
+        :root { --bg:#0a0a0f; --card:#12121a; --accent:#ff2d55; --accent2:#5ac8fa; --go:#30d158; --text:#f5f5f7; --dim:#48484a; --border:#1c1c1e; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'JetBrains Mono',monospace; background:linear-gradient(135deg,var(--bg),#0f0f18); color:var(--text); min-height:100vh; padding:1rem; }
+        header { text-align:center; margin-bottom:1rem; }
+        .kanji { font-size:3rem; color:var(--accent); text-shadow:0 0 40px var(--accent); }
+        h1 { font-size:0.8rem; color:var(--dim); letter-spacing:0.3em; margin-top:0.3rem; }
+        .status { display:flex; justify-content:center; gap:0.5rem; margin-bottom:1rem; font-size:0.7rem; }
+        .status-item { display:flex; align-items:center; gap:0.3rem; padding:0.3rem 0.6rem; background:var(--card); border-radius:12px; border:1px solid var(--border); }
+        .dot { width:8px; height:8px; border-radius:50%; background:var(--dim); }
+        .dot.online { background:var(--go); box-shadow:0 0 10px var(--go); }
+        .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:0.7rem; max-width:700px; margin:0 auto; }
+        .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:0.7rem; }
+        .card-name { font-size:0.65rem; color:var(--accent2); letter-spacing:0.1em; margin-bottom:0.2rem; text-transform:uppercase; }
+        .card-angle { font-size:1.4rem; font-weight:700; margin-bottom:0.4rem; }
+        .card-queue { font-size:0.75rem; color:var(--dim); margin-bottom:0.4rem; }
+        .card-queue.active { color:var(--go); font-weight:700; }
+        .btns { display:flex; gap:0.3rem; }
+        .btn { flex:1; padding:0.5rem; border:1px solid var(--border); border-radius:8px; background:transparent; color:var(--text); font-family:inherit; font-size:0.85rem; cursor:pointer; transition:all 0.1s; }
+        .btn:hover { background:rgba(255,45,85,0.2); border-color:var(--accent); }
+        .btn:active { transform:scale(0.95); }
+        .btn.go { background:var(--go); border-color:var(--go); color:#000; font-weight:700; }
+        .btn.go:disabled { background:var(--dim); border-color:var(--dim); }
+        .conn-bar { display:flex; gap:0.5rem; max-width:700px; margin:1rem auto 0; }
+        .conn-bar .btn { padding:0.5rem; font-size:0.7rem; }
+        .btn.connect { background:var(--go); border-color:var(--go); color:#000; }
+        #log { max-width:700px; margin:0.7rem auto; padding:0.5rem; background:var(--card); border-radius:8px; font-size:0.6rem; color:var(--dim); }
     </style>
 </head>
 <body>
-    <header>
-        <div class="kanji">手</div>
-        <h1>TE CONTROL</h1>
-    </header>
-    
+    <header><div class="kanji">手</div><h1>TE ARM CONTROL</h1></header>
     <div class="status">
-        <div class="status-item">
-            <div class="dot" id="connDot"></div>
-            <span id="connStatus">Checking...</span>
-        </div>
-        <div class="status-item">
-            <span id="portStatus">-</span>
-        </div>
+        <div class="status-item"><div class="dot" id="dot"></div><span id="connStatus">...</span></div>
+        <div class="status-item"><span id="portStatus">-</span></div>
     </div>
-    
-    <div class="controls">
-        <!-- BASE Servo -->
-        <div class="control-group">
-            <div class="control-header">
-                <span class="control-title">BASE SERVO</span>
-                <span class="control-value" id="baseValue">{base_angle}°</span>
-            </div>
-            <div class="button-row">
-                <button class="btn" onclick="baseLeft()">◀ LEFT</button>
-                <button class="btn center" onclick="baseCenter()">⟲</button>
-                <button class="btn" onclick="baseRight()">RIGHT ▶</button>
-            </div>
-            <div class="connection-bar" style="margin-top: 1rem;">
-                <button class="btn" onclick="baseSweep()">TEST SWEEP</button>
-            </div>
-        </div>
-        
-        <!-- DC Motor on M2 -->
-        <div class="control-group">
-            <div class="control-header">
-                <span class="control-title">M2 DC MOTOR</span>
-                <span class="control-value" id="stepperValue">PULSE</span>
-            </div>
-            <div class="button-row">
-                <button class="btn" onclick="stepperLeft()">◀ LEFT</button>
-                <button class="btn center" onclick="stepperStop()">⏹</button>
-                <button class="btn" onclick="stepperRight()">RIGHT ▶</button>
-            </div>
-        </div>
-        
-        <!-- Connection -->
-        <div class="connection-bar">
-            <button class="btn connect" onclick="connect()">CONNECT</button>
-            <button class="btn" onclick="disconnect()">DISCONNECT</button>
-        </div>
+    <div class="grid" id="grid"></div>
+    <div class="conn-bar">
+        <button class="btn connect" onclick="connect()">CONNECT</button>
+        <button class="btn" onclick="disconnect()">DISCONNECT</button>
+        <button class="btn" onclick="homeAll()">HOME ALL</button>
     </div>
-    
     <div id="log">Ready</div>
-    
-    <script>
-        const baseValue = document.getElementById('baseValue');
-        const stepperValue = document.getElementById('stepperValue');
-        const connDot = document.getElementById('connDot');
-        const connStatus = document.getElementById('connStatus');
-        const portStatus = document.getElementById('portStatus');
-        const log = document.getElementById('log');
-        
-        function logMsg(msg) {{
-            const time = new Date().toLocaleTimeString();
-            log.textContent = `[${{time}}] ${{msg}}`;
-        }}
-        
-        async function api(endpoint, method = 'POST') {{
-            try {{
-                const res = await fetch(endpoint, {{ method }});
-                const data = await res.json();
-                return data;
-            }} catch (e) {{
-                logMsg('Error: ' + e.message);
-                return null;
-            }}
-        }}
-        
-        async function updateStatus() {{
-            const data = await api('/status', 'GET');
-            if (data) {{
-                baseValue.textContent = data.base_angle + '°';
-                // For DC motor we just show last pulse direction
-                const m2 = data.m2_last || {{}};
-                if (m2.dir === 1) stepperValue.textContent = 'RIGHT';
-                else if (m2.dir === -1) stepperValue.textContent = 'LEFT';
-                else stepperValue.textContent = 'PULSE';
-                
-                if (data.connected) {{
-                    connDot.classList.add('online');
-                    connStatus.textContent = 'Connected';
-                    portStatus.textContent = data.port || '-';
-                }} else {{
-                    connDot.classList.remove('online');
-                    connStatus.textContent = 'Disconnected';
-                    portStatus.textContent = '-';
-                }}
-            }}
-        }}
-        
-        async function baseLeft() {{
-            const data = await api('/base/left');
-            if (data) {{
-                baseValue.textContent = data.base_angle + '°';
-                logMsg('Base → ' + data.base_angle + '°');
-            }}
-        }}
-        
-        async function baseRight() {{
-            const data = await api('/base/right');
-            if (data) {{
-                baseValue.textContent = data.base_angle + '°';
-                logMsg('Base → ' + data.base_angle + '°');
-            }}
-        }}
-        
-        async function baseCenter() {{
-            const data = await api('/base/center');
-            if (data) {{
-                baseValue.textContent = data.base_angle + '°';
-                logMsg('Base centered');
-            }}
-        }}
+<script>
+const SERVOS = ['base','shoulder','elbow','wrist_bend','wrist_swivel','pincher','head_pan'];
+const LABELS = ['BASE (A0)','SHOULDER (A1)','ELBOW (A2)','WRIST BEND (A3)','WRIST SWIVEL (A4)','PINCHER (A5)','HEAD PAN (D2)'];
+const STEP = 10;
+let angles = {}; SERVOS.forEach(s => angles[s] = 90);
+let queues = {}; SERVOS.forEach(s => queues[s] = 0);
 
-        async function baseSweep() {{
-            logMsg('Sweeping base...');
-            const data = await api('/base/sweep');
-            if (data) {{
-                baseValue.textContent = data.base_angle + '°';
-                logMsg(data.note || 'Sweep done');
-            }}
-        }}
-        
-        async function stepperLeft() {{
-            const data = await api('/stepper/left');
-            if (data) {{
-                stepperValue.textContent = 'LEFT';
-                logMsg('M2 ← pulse (' + data.pwm + ' pwm, ' + data.ms + ' ms)');
-            }}
-        }}
-        
-        async function stepperRight() {{
-            const data = await api('/stepper/right');
-            if (data) {{
-                stepperValue.textContent = 'RIGHT';
-                logMsg('M2 → pulse (' + data.pwm + ' pwm, ' + data.ms + ' ms)');
-            }}
-        }}
-        
-        async function stepperStop() {{
-            await api('/stepper/stop');
-            stepperValue.textContent = 'PULSE';
-            logMsg('M2 stopped');
-        }}
-        
-        async function connect() {{
-            const data = await api('/connect');
-            if (data && data.success) {{
-                logMsg('Connected to ' + data.port);
-                updateStatus();
-            }}
-        }}
-        
-        async function disconnect() {{
-            await api('/disconnect');
-            logMsg('Disconnected');
-            updateStatus();
-        }}
-        
-        // Initial status
-        updateStatus();
-        
-        // Poll status every 5 seconds
-        setInterval(updateStatus, 5000);
-    </script>
+const log = m => document.getElementById('log').textContent = `[${new Date().toLocaleTimeString()}] ${m}`;
+
+function render() {
+    document.getElementById('grid').innerHTML = SERVOS.map((s,i) => `
+        <div class="card">
+            <div class="card-name">${LABELS[i]}</div>
+            <div class="card-angle" id="a_${s}">${angles[s]}°</div>
+            <div class="card-queue${queues[s]?' active':''}" id="q_${s}">${queues[s]>=0?'+':''}${queues[s]}°</div>
+            <div class="btns">
+                <button class="btn" onclick="queue('${s}',-1)">◀</button>
+                <button class="btn go" id="g_${s}" onclick="go('${s}')"${queues[s]?'':' disabled'}>GO</button>
+                <button class="btn" onclick="queue('${s}',1)">▶</button>
+            </div>
+        </div>`).join('');
+}
+
+function queue(s, d) {
+    queues[s] += d * STEP;
+    const t = angles[s] + queues[s];
+    if (t < 0) queues[s] = -angles[s];
+    if (t > 180) queues[s] = 180 - angles[s];
+    render();
+    log(`Queued ${s}: ${queues[s]>=0?'+':''}${queues[s]}°`);
+}
+
+async function go(s) {
+    if (!queues[s]) return;
+    const t = Math.max(0, Math.min(180, angles[s] + queues[s]));
+    log(`Moving ${s} to ${t}°...`);
+    const r = await fetch(`/servo/${s}/set?angle=${t}`, {method:'POST'}).then(r=>r.json()).catch(()=>null);
+    if (r?.angle !== undefined) angles[s] = r.angle;
+    queues[s] = 0;
+    render();
+    log(`${s} → ${angles[s]}°`);
+}
+
+async function connect() {
+    log('Connecting...');
+    const r = await fetch('/connect', {method:'POST'}).then(r=>r.json()).catch(()=>null);
+    r?.success ? (log('Connected: '+r.port), updateStatus()) : log('Failed');
+}
+
+async function disconnect() {
+    await fetch('/disconnect', {method:'POST'});
+    log('Disconnected');
+    updateStatus();
+}
+
+async function homeAll() {
+    log('Homing...');
+    await fetch('/home', {method:'POST'});
+    SERVOS.forEach(s => { angles[s]=90; queues[s]=0; });
+    render();
+    log('All servos homed');
+}
+
+async function updateStatus() {
+    const r = await fetch('/status').then(r=>r.json()).catch(()=>null);
+    if (r) {
+        if (r.servos) SERVOS.forEach(s => { if(r.servos[s]!==undefined) angles[s]=r.servos[s]; });
+        SERVOS.forEach(s => { const e=document.getElementById('a_'+s); if(e) e.textContent=angles[s]+'°'; });
+        const dot = document.getElementById('dot');
+        document.getElementById('connStatus').textContent = r.connected ? 'Connected' : 'Disconnected';
+        document.getElementById('portStatus').textContent = r.port || '-';
+        r.connected ? dot.classList.add('online') : dot.classList.remove('online');
+    }
+}
+
+render();
+updateStatus();
+setInterval(updateStatus, 5000);
+</script>
 </body>
 </html>
-"""
-    return HTMLResponse(content=html)
+""")
 
-
-# =============================================================================
-# Main
-# =============================================================================
 
 if __name__ == "__main__":
     import uvicorn
-    
     print("=" * 50)
-    print("  TE Node - Simple Control (手)")
-    print("  http://0.0.0.0:8027")
+    print("  TE Arm - 6 Servo Control (手)")
+    print("  http://0.0.0.0:8027/dashboard")
     print("=" * 50)
-    print("  Dashboard: http://te.local:8027/dashboard")
-    print("=" * 50)
-    
     uvicorn.run(app, host="0.0.0.0", port=8027)
-

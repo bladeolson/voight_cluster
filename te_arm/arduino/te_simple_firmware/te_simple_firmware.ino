@@ -1,54 +1,80 @@
 /*
  * TE Node - Simple Firmware (手)
  * ================================
- * BASE servo + DC Motor on M2 (OSEPP TB6612 Motor+Servo Shield on Uno)
+ * Arduino Uno + OSEPP TB6612 Motor Shield (TBSHD-01)
  *
- * Hardware:
- *   - Arduino Uno + OSEPP TB6612 Motor/Servo Shield
- *   - BASE servo on SVG0 (Arduino pin 2)
- *   - DC motor on M2+ / M2- (TB6612 Motor B)
+ * HARDWARE PIN MAPPING:
+ * =====================
+ * 
+ * SERVO (on SVG header P7):
+ *   - Signal: A0 (Analog pin 0)
+ *   - Uses ServoTimer2 to avoid Timer1 conflict with motor PWM
+ *
+ * MOTOR DRIVER (TB6612 - upper chip, M1/M2):
+ *   - M1: PWMA=D11, AIN1=D13, AIN2=D12
+ *   - M2: PWMB=D10, BIN1=D8,  BIN2=D7
+ *
+ * MOTOR DRIVER (TB6612 - lower chip, M3/M4):
+ *   - M3: PWMA=D6,  AIN1=D4,  AIN2=D9  (or similar - needs verification)
+ *   - M4: PWMB=D5,  BIN1=D3,  BIN2=D2  (or similar - needs verification)
+ *
+ * TIMER NOTES:
+ *   - Timer0: pins 5, 6 (used by millis/delay - don't touch)
+ *   - Timer1: pins 9, 10 (used by Servo.h - CONFLICTS with M2 PWM!)
+ *   - Timer2: pins 3, 11 (used by ServoTimer2 - affects M1 PWM on D11)
+ *
+ * TRADE-OFF: Using ServoTimer2 disables PWM on D11 (M1).
+ *            If you only use M2/M3, this is fine.
+ *            M2 (D10) and M3 (D6) remain fully functional.
  *
  * Protocol: Serial JSON at 115200 baud
- *
- * Commands:
- *   {"cmd":"status"}                               - Report status
- *   {"cmd":"base","angle":90}                      - Move base servo (0-180)
- *   {"cmd":"m2","dir":-1|1,"pwm":0..255,"ms":50}   - Run DC motor M2 for ms (safe pulse)
- *   {"cmd":"m2_stop"}                              - Stop motor M2
- *   {"cmd":"move","joints":[j0..j5]}               - Legacy 6-joint move (only uses joint 0)
  */
 
-#include <Servo.h>
+/*
+ * NOTE ON TIMER CONFLICT:
+ * Servo.h uses Timer1, which disables PWM on pins 9 and 10.
+ * - M2 (PWM=D10) will NOT have speed control (on/off only)
+ * - M3 (PWM=D6) WILL work fine (D6 uses Timer0)
+ * 
+ * If you need M2 speed control, install ServoTimer2 manually.
+ */
+#include <Servo.h>        // Standard Servo library
 #include <ArduinoJson.h>
 
 // =============================================================================
-// Pin Configuration - OSEPP TBSHD-01 (from schematic)
+// Pin Configuration - 7 Servos
 // =============================================================================
 
-// BASE Servo - SVG header position 0 = Arduino pin 2
-#define BASE_SERVO_PIN 2
+// Arm servos on Analog pins (SVG headers P7-P12)
+#define BASE_PIN         A0   // P7 header
+#define SHOULDER_PIN     A1   // P8 header
+#define ELBOW_PIN        A2   // P9 header
+#define WRIST_BEND_PIN   A3   // P10 header
+#define WRIST_SWIVEL_PIN A4   // P11 header
+#define PINCHER_PIN      A5   // P12 header
 
-// MOTOR2 (M2 terminals) on the upper TB6612 (from schematic JP7 mapping):
-// - DIR2+  -> Arduino D8
-// - DIR2-  -> Arduino D7
-// - PWM1B  -> Arduino D10 (PWM)
-#define PWMB  10    // PWM1B
-#define BIN1  8     // DIR2+
-#define BIN2  7     // DIR2-
+// Head servo on Digital pin D2 (SVG position 3 on this shield)
+#define HEAD_PAN_PIN     2    // Digital pin 2
 
-// MOTOR1 (M1 terminals) on the upper TB6612 (from schematic JP7 mapping):
-// - DIR1+  -> Arduino D13
-// - DIR1-  -> Arduino D12
-// - PWM1A  -> Arduino D11 (PWM)
-#define PWMA  11    // PWM1A
-#define AIN1  13    // DIR1+
-#define AIN2  12    // DIR1-
+#define NUM_SERVOS 7
 
-// =============================================================================
-// Temporary pin-scan mode (find correct M2 mapping)
-// =============================================================================
-// Set to 1 only if pin mapping is unknown.
-#define M2_PIN_SCAN_MODE 0
+// MOTOR2 (M2 terminals) - upper TB6612, Motor B
+// This is likely your wheel motor - uses Timer1-safe pins
+#define M2_PWM  10    // PWM (Timer1 - preserved by ServoTimer2!)
+#define M2_IN1  8     // Direction
+#define M2_IN2  7     // Direction
+
+// MOTOR1 (M1 terminals) - upper TB6612, Motor A  
+// WARNING: D11 PWM may be affected by ServoTimer2 (Timer2)
+#define M1_PWM  11
+#define M1_IN1  13
+#define M1_IN2  12
+
+// MOTOR3 (M3 terminals) - lower TB6612, Motor A (if present)
+// These pins are guesses - verify with your hardware
+#define M3_PWM  6     // PWM (Timer0 - always works)
+#define M3_IN1  4
+#define M3_IN2  9
 
 // =============================================================================
 // Configuration
@@ -58,81 +84,31 @@
 #define JSON_BUFFER_SIZE 256
 
 // Motor safety defaults
-#define DEFAULT_M2_PWM  120     // gentle power
-#define DEFAULT_M2_MS   120     // short pulse
-
-// Pin-scan safety defaults
-#define SCAN_PWM  100
-#define SCAN_MS   120
-#define SCAN_PAUSE_MS 900
+#define DEFAULT_PWM  120     // gentle power (0-255)
+#define DEFAULT_MS   150     // pulse duration in ms
 
 // =============================================================================
 // Global State
 // =============================================================================
 
-Servo baseServo;
-int baseAngle = 90;
+Servo servos[NUM_SERVOS];
+int angles[NUM_SERVOS] = {90, 90, 90, 90, 90, 90, 90};
+
+// Servo names for JSON responses
+const char* servoNames[NUM_SERVOS] = {
+  "base", "shoulder", "elbow", "wrist_bend", "wrist_swivel", "pincher", "head_pan"
+};
 String inputBuffer = "";
-bool m2Running = false;
-int lastM2Dir = 0;
-int lastM2Pwm = 0;
-int lastM2Ms = 0;
 
-bool m1Running = false;
-int lastM1Dir = 0;
-int lastM1Pwm = 0;
-int lastM1Ms = 0;
-
-#if M2_PIN_SCAN_MODE
-struct M2Candidate {
-  uint8_t stby;
-  uint8_t pwm;
-  uint8_t in1;
-  uint8_t in2;
+// Motor state tracking
+struct MotorState {
+  int lastDir;
+  int lastPwm;
+  int lastMs;
 };
-
-// Candidate pins on Arduino Uno we’re willing to test.
-// PWM-capable: 3,5,6,9,10,11. Avoid 2 (servo), 0/1 (serial).
-const uint8_t _PWM_CANDS[]  = {3, 5, 6, 9, 10, 11};
-const uint8_t _STBY_CANDS[] = {4, 7, 8, 12, 13};
-
-// Common direction pin pairs seen on TB6612-based shields.
-const uint8_t _DIR_PAIRS[][2] = {
-  {7, 8},
-  {8, 7},
-  {9, 10},
-  {10, 9},
-  {12, 13},
-  {13, 12},
-};
-
-// Precomputed candidate list (built at runtime from the arrays above)
-M2Candidate _cands[64];
-uint8_t _candCount = 0;
-uint8_t _candIdx = 0;
-
-void buildCandidates() {
-  _candCount = 0;
-  for (uint8_t si = 0; si < (sizeof(_STBY_CANDS) / sizeof(_STBY_CANDS[0])); si++) {
-    for (uint8_t pi = 0; pi < (sizeof(_PWM_CANDS) / sizeof(_PWM_CANDS[0])); pi++) {
-      for (uint8_t di = 0; di < (sizeof(_DIR_PAIRS) / sizeof(_DIR_PAIRS[0])); di++) {
-        uint8_t stby = _STBY_CANDS[si];
-        uint8_t pwm  = _PWM_CANDS[pi];
-        uint8_t in1  = _DIR_PAIRS[di][0];
-        uint8_t in2  = _DIR_PAIRS[di][1];
-        // Avoid collisions (all pins must be distinct and not the servo pin)
-        if (stby == BASE_SERVO_PIN || pwm == BASE_SERVO_PIN || in1 == BASE_SERVO_PIN || in2 == BASE_SERVO_PIN) continue;
-        if (stby == pwm || stby == in1 || stby == in2) continue;
-        if (pwm == in1 || pwm == in2) continue;
-        if (in1 == in2) continue;
-        if (_candCount < (sizeof(_cands) / sizeof(_cands[0]))) {
-          _cands[_candCount++] = {stby, pwm, in1, in2};
-        }
-      }
-    }
-  }
-}
-#endif
+MotorState m1State = {0, 0, 0};
+MotorState m2State = {0, 0, 0};
+MotorState m3State = {0, 0, 0};
 
 // =============================================================================
 // Setup
@@ -142,164 +118,165 @@ void setup() {
   Serial.begin(SERIAL_BAUD);
   while (!Serial) { ; }
   
-  // Initialize BASE servo
-  baseServo.attach(BASE_SERVO_PIN);
-  baseServo.write(baseAngle);
+  // Initialize all 7 servos
+  const int pins[NUM_SERVOS] = {BASE_PIN, SHOULDER_PIN, ELBOW_PIN, WRIST_BEND_PIN, WRIST_SWIVEL_PIN, PINCHER_PIN, HEAD_PAN_PIN};
+  for (int i = 0; i < NUM_SERVOS; i++) {
+    servos[i].attach(pins[i]);
+    servos[i].write(90);
+    angles[i] = 90;
+  }
   
-#if M2_PIN_SCAN_MODE
-  pinMode(LED_BUILTIN, OUTPUT);
-  buildCandidates();
-  Serial.println("{\"event\":\"startup\",\"node\":\"te_simple\",\"mode\":\"m2_pin_scan\"}");
-  Serial.print("M2 scan candidates: ");
-  Serial.println(_candCount);
-  Serial.println("Watching for motor bump. Note candidate index printed before each pulse.");
-  return;
-#endif
-
-  pinMode(PWMB, OUTPUT);
-  pinMode(BIN1, OUTPUT);
-  pinMode(BIN2, OUTPUT);
-
-  pinMode(PWMA, OUTPUT);
-  pinMode(AIN1, OUTPUT);
-  pinMode(AIN2, OUTPUT);
+  // Initialize M2 motor pins (your wheel motor)
+  pinMode(M2_PWM, OUTPUT);
+  pinMode(M2_IN1, OUTPUT);
+  pinMode(M2_IN2, OUTPUT);
+  analogWrite(M2_PWM, 0);
+  digitalWrite(M2_IN1, LOW);
+  digitalWrite(M2_IN2, LOW);
   
-  // Motor off initially
-  analogWrite(PWMB, 0);
-  digitalWrite(BIN1, LOW);
-  digitalWrite(BIN2, LOW);
-
-  analogWrite(PWMA, 0);
-  digitalWrite(AIN1, LOW);
-  digitalWrite(AIN2, LOW);
+  // Initialize M1 motor pins (backup/diagnostic)
+  pinMode(M1_PWM, OUTPUT);
+  pinMode(M1_IN1, OUTPUT);
+  pinMode(M1_IN2, OUTPUT);
+  analogWrite(M1_PWM, 0);
+  digitalWrite(M1_IN1, LOW);
+  digitalWrite(M1_IN2, LOW);
   
-  Serial.println("{\"event\":\"startup\",\"node\":\"te_simple\",\"base\":90,\"m2\":true}");
+  // Initialize M3 motor pins (if using lower TB6612)
+  pinMode(M3_PWM, OUTPUT);
+  pinMode(M3_IN1, OUTPUT);
+  pinMode(M3_IN2, OUTPUT);
+  analogWrite(M3_PWM, 0);
+  digitalWrite(M3_IN1, LOW);
+  digitalWrite(M3_IN2, LOW);
+  
+  Serial.println("{\"event\":\"startup\",\"node\":\"te_simple\",\"servos\":6,\"motor\":\"M3\"}");
 }
 
 // =============================================================================
-// DC Motor M2 control (safe pulses)
+// Motor Control Functions
 // =============================================================================
 
-void m2Stop() {
-  analogWrite(PWMB, 0);
-  digitalWrite(BIN1, LOW);
-  digitalWrite(BIN2, LOW);
-  m2Running = false;
-  // Keep lastM2Dir/lastM2Pwm/lastM2Ms for diagnostics
-}
-
-void m2Run(int dir, int pwm, int ms) {
+void motorRun(int pwmPin, int in1Pin, int in2Pin, int dir, int pwm, int ms, MotorState* state) {
   dir = (dir >= 0) ? 1 : -1;
   pwm = constrain(pwm, 0, 255);
   ms = constrain(ms, 10, 2000);
-
-  // Direction
+  
+  // Set direction
   if (dir > 0) {
-    digitalWrite(BIN1, HIGH);
-    digitalWrite(BIN2, LOW);
+    digitalWrite(in1Pin, HIGH);
+    digitalWrite(in2Pin, LOW);
   } else {
-    digitalWrite(BIN1, LOW);
-    digitalWrite(BIN2, HIGH);
+    digitalWrite(in1Pin, LOW);
+    digitalWrite(in2Pin, HIGH);
   }
-
-  analogWrite(PWMB, pwm);
-  m2Running = true;
-  lastM2Dir = dir;
-  lastM2Pwm = pwm;
-  lastM2Ms = ms;
-
+  
+  // Run motor
+  analogWrite(pwmPin, pwm);
   delay(ms);
-  m2Stop();
+  
+  // Stop
+  analogWrite(pwmPin, 0);
+  digitalWrite(in1Pin, LOW);
+  digitalWrite(in2Pin, LOW);
+  
+  // Track state
+  state->lastDir = dir;
+  state->lastPwm = pwm;
+  state->lastMs = ms;
 }
 
-// =============================================================================
-// DC Motor M1 control (for diagnosis if motor is on MOTOR1 terminals)
-// =============================================================================
-
-void m1Stop() {
-  analogWrite(PWMA, 0);
-  digitalWrite(AIN1, LOW);
-  digitalWrite(AIN2, LOW);
-  m1Running = false;
-  // Keep lastM1* for diagnostics
+void motorStop(int pwmPin, int in1Pin, int in2Pin) {
+  analogWrite(pwmPin, 0);
+  digitalWrite(in1Pin, LOW);
+  digitalWrite(in2Pin, LOW);
 }
+
+// Convenience wrappers
+void m2Run(int dir, int pwm, int ms) {
+  motorRun(M2_PWM, M2_IN1, M2_IN2, dir, pwm, ms, &m2State);
+}
+void m2Stop() { motorStop(M2_PWM, M2_IN1, M2_IN2); }
 
 void m1Run(int dir, int pwm, int ms) {
-  dir = (dir >= 0) ? 1 : -1;
-  pwm = constrain(pwm, 0, 255);
-  ms = constrain(ms, 10, 2000);
-
-  if (dir > 0) {
-    digitalWrite(AIN1, HIGH);
-    digitalWrite(AIN2, LOW);
-  } else {
-    digitalWrite(AIN1, LOW);
-    digitalWrite(AIN2, HIGH);
-  }
-
-  analogWrite(PWMA, pwm);
-  m1Running = true;
-  lastM1Dir = dir;
-  lastM1Pwm = pwm;
-  lastM1Ms = ms;
-
-  delay(ms);
-  m1Stop();
+  motorRun(M1_PWM, M1_IN1, M1_IN2, dir, pwm, ms, &m1State);
 }
+void m1Stop() { motorStop(M1_PWM, M1_IN1, M1_IN2); }
+
+void m3Run(int dir, int pwm, int ms) {
+  motorRun(M3_PWM, M3_IN1, M3_IN2, dir, pwm, ms, &m3State);
+}
+void m3Stop() { motorStop(M3_PWM, M3_IN1, M3_IN2); }
 
 // =============================================================================
-// BASE Servo Control
+// Servo Control
 // =============================================================================
 
-void moveBase(int angle) {
+void moveServo(int idx, int angle) {
+  if (idx < 0 || idx >= NUM_SERVOS) return;
   angle = constrain(angle, 0, 180);
   
-  // Smooth move
-  int current = baseAngle;
-  int dir = (angle > current) ? 1 : -1;
+  int current = angles[idx];
+  int step = (angle > current) ? 1 : -1;
   
   while (current != angle) {
-    current += dir;
-    baseServo.write(current);
-    delay(10);  // Smooth movement
+    current += step;
+    servos[idx].write(current);
+    delay(15);
   }
-  
-  baseAngle = angle;
+  angles[idx] = angle;
 }
 
+// Convenience functions
+void moveBase(int angle) { moveServo(0, angle); }
+void moveShoulder(int angle) { moveServo(1, angle); }
+void moveElbow(int angle) { moveServo(2, angle); }
+void moveWristBend(int angle) { moveServo(3, angle); }
+void moveWristSwivel(int angle) { moveServo(4, angle); }
+void movePincher(int angle) { moveServo(5, angle); }
+void moveHeadPan(int angle) { moveServo(6, angle); }
+
 // =============================================================================
-// Command Processing
+// Response Helper
 // =============================================================================
 
 void sendResponse(bool ok, const char* error = nullptr) {
-  StaticJsonDocument<JSON_BUFFER_SIZE> doc;
+  StaticJsonDocument<512> doc;
   doc["ok"] = ok;
   
   if (error) {
     doc["error"] = error;
   }
   
-  doc["base_angle"] = baseAngle;
-  doc["m2_running"] = m2Running;
-  doc["m2_dir"] = lastM2Dir;
-  doc["m2_pwm"] = lastM2Pwm;
-  doc["m2_ms"] = lastM2Ms;
-
-  doc["m1_running"] = m1Running;
-  doc["m1_dir"] = lastM1Dir;
-  doc["m1_pwm"] = lastM1Pwm;
-  doc["m1_ms"] = lastM1Ms;
+  // All servo angles
+  doc["base"] = angles[0];
+  doc["shoulder"] = angles[1];
+  doc["elbow"] = angles[2];
+  doc["wrist_bend"] = angles[3];
+  doc["wrist_swivel"] = angles[4];
+  doc["pincher"] = angles[5];
+  doc["head_pan"] = angles[6];
   
-  // Legacy joints array (for compatibility)
+  // Motor state
+  JsonObject m3 = doc.createNestedObject("m3");
+  m3["dir"] = m3State.lastDir;
+  m3["pwm"] = m3State.lastPwm;
+  m3["ms"] = m3State.lastMs;
+  
+  // Joints array for compatibility
   JsonArray joints = doc.createNestedArray("joints");
-  joints.add(baseAngle);
-  for (int i = 1; i < 6; i++) joints.add(90);
-  
+  for (int i = 0; i < NUM_SERVOS; i++) {
+    joints.add(angles[i]);
+  }
   doc["enabled"] = true;
   
   serializeJson(doc, Serial);
   Serial.println();
 }
+
+// =============================================================================
+// Command Processing
+// =============================================================================
 
 void processCommand(const String& input) {
   StaticJsonDocument<JSON_BUFFER_SIZE> doc;
@@ -321,62 +298,124 @@ void processCommand(const String& input) {
     sendResponse(true);
   }
   
-  // === BASE SERVO ===
+  // === SERVO COMMANDS ===
   else if (strcmp(cmd, "base") == 0) {
     int angle = doc["angle"] | -1;
-    if (angle < 0 || angle > 180) {
-      sendResponse(false, "angle must be 0-180");
-      return;
-    }
+    if (angle < 0 || angle > 180) { sendResponse(false, "angle 0-180"); return; }
     moveBase(angle);
     sendResponse(true);
   }
-
-  // === DC Motor M2 ===
-  else if (strcmp(cmd, "m2") == 0) {
+  else if (strcmp(cmd, "shoulder") == 0) {
+    int angle = doc["angle"] | -1;
+    if (angle < 0 || angle > 180) { sendResponse(false, "angle 0-180"); return; }
+    moveShoulder(angle);
+    sendResponse(true);
+  }
+  else if (strcmp(cmd, "elbow") == 0) {
+    int angle = doc["angle"] | -1;
+    if (angle < 0 || angle > 180) { sendResponse(false, "angle 0-180"); return; }
+    moveElbow(angle);
+    sendResponse(true);
+  }
+  else if (strcmp(cmd, "wrist_bend") == 0) {
+    int angle = doc["angle"] | -1;
+    if (angle < 0 || angle > 180) { sendResponse(false, "angle 0-180"); return; }
+    moveWristBend(angle);
+    sendResponse(true);
+  }
+  else if (strcmp(cmd, "wrist_swivel") == 0) {
+    int angle = doc["angle"] | -1;
+    if (angle < 0 || angle > 180) { sendResponse(false, "angle 0-180"); return; }
+    moveWristSwivel(angle);
+    sendResponse(true);
+  }
+  else if (strcmp(cmd, "pincher") == 0) {
+    int angle = doc["angle"] | -1;
+    if (angle < 0 || angle > 180) { sendResponse(false, "angle 0-180"); return; }
+    movePincher(angle);
+    sendResponse(true);
+  }
+  else if (strcmp(cmd, "head_pan") == 0) {
+    int angle = doc["angle"] | -1;
+    if (angle < 0 || angle > 180) { sendResponse(false, "angle 0-180"); return; }
+    moveHeadPan(angle);
+    sendResponse(true);
+  }
+  // Generic servo by index
+  else if (strcmp(cmd, "servo") == 0) {
+    int idx = doc["idx"] | -1;
+    int angle = doc["angle"] | -1;
+    if (idx < 0 || idx >= NUM_SERVOS) { sendResponse(false, "idx 0-5"); return; }
+    if (angle < 0 || angle > 180) { sendResponse(false, "angle 0-180"); return; }
+    moveServo(idx, angle);
+    sendResponse(true);
+  }
+  
+  // === MOTOR M2 (your wheel - primary) ===
+  else if (strcmp(cmd, "m2") == 0 || strcmp(cmd, "motor") == 0) {
     int dir = doc["dir"] | 1;
-    int pwm = doc["pwm"] | DEFAULT_M2_PWM;
-    int ms  = doc["ms"]  | DEFAULT_M2_MS;
+    int pwm = doc["pwm"] | DEFAULT_PWM;
+    int ms  = doc["ms"]  | DEFAULT_MS;
     m2Run(dir, pwm, ms);
     sendResponse(true);
   }
-
-  else if (strcmp(cmd, "m2_stop") == 0) {
+  
+  else if (strcmp(cmd, "m2_stop") == 0 || strcmp(cmd, "motor_stop") == 0) {
     m2Stop();
     sendResponse(true);
   }
-
-  // === DC Motor M1 (diagnostic) ===
+  
+  // === MOTOR M1 (diagnostic) ===
   else if (strcmp(cmd, "m1") == 0) {
     int dir = doc["dir"] | 1;
-    int pwm = doc["pwm"] | DEFAULT_M2_PWM;
-    int ms  = doc["ms"]  | DEFAULT_M2_MS;
+    int pwm = doc["pwm"] | DEFAULT_PWM;
+    int ms  = doc["ms"]  | DEFAULT_MS;
     m1Run(dir, pwm, ms);
     sendResponse(true);
   }
-
+  
   else if (strcmp(cmd, "m1_stop") == 0) {
     m1Stop();
+    sendResponse(true);
+  }
+  
+  // === MOTOR M3 (diagnostic - lower TB6612) ===
+  else if (strcmp(cmd, "m3") == 0) {
+    int dir = doc["dir"] | 1;
+    int pwm = doc["pwm"] | DEFAULT_PWM;
+    int ms  = doc["ms"]  | DEFAULT_MS;
+    m3Run(dir, pwm, ms);
+    sendResponse(true);
+  }
+  
+  else if (strcmp(cmd, "m3_stop") == 0) {
+    m3Stop();
+    sendResponse(true);
+  }
+  
+  // === HOME ===
+  else if (strcmp(cmd, "home") == 0) {
+    for (int i = 0; i < NUM_SERVOS; i++) {
+      moveServo(i, 90);
+    }
     sendResponse(true);
   }
   
   // === LEGACY MOVE (6-joint) ===
   else if (strcmp(cmd, "move") == 0) {
     JsonArray joints = doc["joints"];
-    if (!joints.isNull() && joints.size() >= 1) {
-      int angle = joints[0].as<int>();
-      moveBase(constrain(angle, 0, 180));
+    if (!joints.isNull()) {
+      if (joints.size() >= 1) {
+        moveBase(constrain(joints[0].as<int>(), 0, 180));
+      }
+      if (joints.size() >= 2) {
+        moveShoulder(constrain(joints[1].as<int>(), 0, 180));
+      }
     }
     sendResponse(true);
   }
   
-  // === HOME ===
-  else if (strcmp(cmd, "home") == 0) {
-    moveBase(90);
-    sendResponse(true);
-  }
-  
-  // === ENABLE/DISABLE (no-op for now) ===
+  // === ENABLE/DISABLE (no-op) ===
   else if (strcmp(cmd, "enable") == 0 || strcmp(cmd, "disable") == 0) {
     sendResponse(true);
   }
@@ -391,61 +430,6 @@ void processCommand(const String& input) {
 // =============================================================================
 
 void loop() {
-#if M2_PIN_SCAN_MODE
-  if (_candCount == 0) {
-    delay(500);
-    return;
-  }
-  const M2Candidate c = _cands[_candIdx];
-  _candIdx = (_candIdx + 1) % _candCount;
-
-  // Configure pins for this candidate
-  pinMode(c.stby, OUTPUT);
-  pinMode(c.pwm, OUTPUT);
-  pinMode(c.in1, OUTPUT);
-  pinMode(c.in2, OUTPUT);
-
-  digitalWrite(c.stby, HIGH);
-
-  // Print candidate details
-  Serial.print("CAND ");
-  Serial.print(_candIdx == 0 ? (_candCount - 1) : (_candIdx - 1));
-  Serial.print(" stby=");
-  Serial.print(c.stby);
-  Serial.print(" pwm=");
-  Serial.print(c.pwm);
-  Serial.print(" in1=");
-  Serial.print(c.in1);
-  Serial.print(" in2=");
-  Serial.println(c.in2);
-
-  // Forward pulse
-  digitalWrite(LED_BUILTIN, HIGH);
-  digitalWrite(c.in1, HIGH);
-  digitalWrite(c.in2, LOW);
-  analogWrite(c.pwm, SCAN_PWM);
-  delay(SCAN_MS);
-  analogWrite(c.pwm, 0);
-  digitalWrite(c.in1, LOW);
-  digitalWrite(c.in2, LOW);
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(SCAN_PAUSE_MS);
-
-  // Reverse pulse
-  digitalWrite(LED_BUILTIN, HIGH);
-  digitalWrite(c.in1, LOW);
-  digitalWrite(c.in2, HIGH);
-  analogWrite(c.pwm, SCAN_PWM);
-  delay(SCAN_MS);
-  analogWrite(c.pwm, 0);
-  digitalWrite(c.in1, LOW);
-  digitalWrite(c.in2, LOW);
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(SCAN_PAUSE_MS);
-
-  return;
-#endif
-
   while (Serial.available()) {
     char c = Serial.read();
     
